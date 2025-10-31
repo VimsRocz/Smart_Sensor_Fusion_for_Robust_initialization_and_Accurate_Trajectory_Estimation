@@ -1,5 +1,36 @@
-# IMU — GNSS + IMU Data Processing (Python)
+# Vibration Detection and Rejection from IMU Data
 
+> **Project Focus**: This repository contains the solution for the **Vibration Detection and Rejection from IMU Data** project.
+>
+> For complete project documentation, see [VIBRATION_PROJECT_README.md](VIBRATION_PROJECT_README.md)
+
+## Quick Start
+
+Run the complete vibration detection and compensation pipeline:
+
+```bash
+python run_vibration_detection.py
+```
+
+This will generate comprehensive results and plots in the `vibration_results/` directory.
+
+## Project Overview
+
+This project implements detection and compensation algorithms for vibration artifacts in IMU data, supporting:
+- Multiple vibration types (sinusoidal, motor, rotor, random)
+- Frequency domain analysis and detection
+- Adaptive compensation methods
+- Real-time capable processing
+
+See [VIBRATION_PROJECT_README.md](VIBRATION_PROJECT_README.md) for complete documentation including API reference, usage examples, and results.
+
+---
+
+# Additional Repository Content
+
+This repository was originally forked from a larger project hub. Below is the documentation for the original content:
+
+## IMU — GNSS + IMU Data Processing (Python)
 
 [![GitHub release](https://img.shields.io/github/v/release/VimsRocz/IMU?logo=github)](https://github.com/VimsRocz/IMU/releases) [![GitHub stars](https://img.shields.io/github/stars/VimsRocz/IMU?style=social)](https://github.com/VimsRocz/IMU/stargazers) [![GitHub forks](https://img.shields.io/github/forks/VimsRocz/IMU?style=social)](https://github.com/VimsRocz/IMU/network/members) [![Follow on GitHub](https://img.shields.io/github/followers/VimsRocz?style=social)](https://github.com/VimsRocz) [![License](https://img.shields.io/github/license/VimsRocz/IMU)](LICENSE) [![Python CI](https://github.com/VimsRocz/IMU/actions/workflows/python-ci.yml/badge.svg)](https://github.com/VimsRocz/IMU/actions/workflows/python-ci.yml) [![PyPI](https://img.shields.io/pypi/v/imu_gnss_fusion)](https://pypi.org/project/imu_gnss_fusion/) [![CodeQL](https://github.com/VimsRocz/IMU/actions/workflows/codeql.yml/badge.svg)](https://github.com/VimsRocz/IMU/actions/workflows/codeql.yml)
 
