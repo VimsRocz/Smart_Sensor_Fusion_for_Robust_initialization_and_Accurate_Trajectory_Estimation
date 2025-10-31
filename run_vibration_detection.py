@@ -196,10 +196,11 @@ def run_vibration_detection_demo(output_dir):
         
         # Plot 8: Comparison - Z-axis detail
         ax8 = plt.subplot(3, 3, 8)
-        time_zoom = time[:400]  # First 1 second
-        plt.plot(time_zoom, accel_clean[:400, 2], 'g-', label='Clean', linewidth=2, alpha=0.8)
-        plt.plot(time_zoom, accel_vibrated[:400, 2], 'r-', label='Vibrated', alpha=0.7)
-        plt.plot(time_zoom, accel_compensated[:400, 2], 'b--', label='Compensated', linewidth=1.5, alpha=0.7)
+        samples_per_second = int(fs)  # Calculate samples for 1 second based on sampling frequency
+        time_zoom = time[:samples_per_second]  # First 1 second
+        plt.plot(time_zoom, accel_clean[:samples_per_second, 2], 'g-', label='Clean', linewidth=2, alpha=0.8)
+        plt.plot(time_zoom, accel_vibrated[:samples_per_second, 2], 'r-', label='Vibrated', alpha=0.7)
+        plt.plot(time_zoom, accel_compensated[:samples_per_second, 2], 'b--', label='Compensated', linewidth=1.5, alpha=0.7)
         plt.xlabel('Time (s)')
         plt.ylabel('Z-axis Acceleration (m/s²)')
         plt.title('Comparison (First 1 second)')
