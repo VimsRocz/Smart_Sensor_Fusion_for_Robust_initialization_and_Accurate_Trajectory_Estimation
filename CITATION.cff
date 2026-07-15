@@ -1,14 +1,14 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
-title: "IMU_GNSS_Fusion"
-version: "1.0.1"
-date-released: 2025-06-14
+title: "Smart Sensor Fusion for Robust Initialization and Accurate Trajectory Estimation"
+version: "2.0.0"
+date-released: 2026-07-15
 authors:
   - name: "VimsRocz"
 preferred-citation:
   type: software
-  title: "IMU_GNSS_Fusion"
-  version: "1.0.1"
+  title: "Smart Sensor Fusion for Robust Initialization and Accurate Trajectory Estimation"
+  version: "2.0.0"
   authors:
     - name: "VimsRocz"
-  url: "https://github.com/VimsRocz/IMU"
+  url: "https://github.com/VimsRocz/Smart_Sensor_Fusion_for_Robust_initialization_and_Accurate_Trajectory_Estimation"

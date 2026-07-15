@@ -1,0 +1,25 @@
+input:
+  imu: DATA/IMU/IMU_X001_small.dat
+  gnss: DATA/GNSS/GNSS_X001_small.csv
+  truth: DATA/Truth/STATE_X001_small.txt
+
+run:
+  method: ALL
+  tasks: 1-7
+  output: results
+  run_id: X001_small
+
+pipeline:
+  imu_measurement_type: delta
+  static_samples: 200
+  gravity_weight: 0.9999
+  earth_rate_weight: 0.0001
+  process_accel_std_mps2: 20.0
+  gnss_position_std_m: 2.0
+  gnss_velocity_std_mps: 0.5
+  max_specific_force_mps2: 100.0
+  max_angular_rate_rps: 20.0
+  truth_quaternion_order: xyzw
+  truth_quaternion_frame: body_to_ecef
+  truth_attitude_time_offset_s: -0.05
+  plots: true

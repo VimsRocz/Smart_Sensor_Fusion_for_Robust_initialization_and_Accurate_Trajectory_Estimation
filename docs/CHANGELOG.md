@@ -1,5 +1,16 @@
 ## Changelog
 
+### 2.0.0 — 2026-07-15
+
+- Added canonical, separate Python and MATLAB Tasks 1–7.
+- Added strict and documented IMU, GNSS, and truth input contracts.
+- Added independent TRIAD, Davenport, and SVD execution plus all-method comparison.
+- Added dependency-aware task prefixes and per-task JSON/numeric/plot outputs.
+- Replaced ambiguous quaternion handling with normalized scalar-first Body→NED values.
+- Corrected height comparisons to use `height = -NED Down` after common-origin ECEF conversion.
+- Rebuilt the Python GUI around the canonical runner.
+- Made canonical validation, tests, and smoke execution mandatory in CI.
+
 ### Recent Updates
 
 - **Bias estimation fix** (`Task_2` function, `fusion_single.py`)

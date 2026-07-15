@@ -30,3 +30,8 @@ OUTPUTS/
 logs/
 *.log
 triad_*_log.txt
+.venv/
+results/
+build/
+dist/
+*.egg-info/

@@ -1,5 +1,5 @@
 
-.PHONY: deps test
+.PHONY: deps test smoke
 
 # Install all Python dependencies needed for running the code and tests.
 deps:
@@ -10,4 +10,6 @@ deps:
 test: deps
 	pytest -q
 
+smoke:
+	python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --no-plots
 

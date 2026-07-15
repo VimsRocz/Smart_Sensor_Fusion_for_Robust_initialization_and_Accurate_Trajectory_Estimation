@@ -10,5 +10,6 @@ GNSS CSV files provide only Earth‑centred Earth‑fixed (ECEF) position and ve
 The latitude, longitude and altitude columns are kept at zero.  The pipeline
 recovers any needed geodetic coordinates from the ECEF values.
 
-Each run also has a shortened `*_small` variant for quick testing that contains
-the first 1,000 IMU samples and ten GNSS epochs.
+Each run also has a shortened `*_small` variant for quick testing. The checked-in
+files contain 1,000 IMU samples, nine GNSS data epochs (plus the CSV header), and
+99 truth states (plus the truth comment header).

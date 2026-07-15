@@ -1,143 +1,16 @@
-PYTHON — IMU/GNSS Processing
+# Python implementation
 
-All Python code is in src/, outputs in results/.
+Use `run_pipeline.py` as the stable entry point. The `fusion_pipeline/` package contains input contracts, attitude methods, Tasks 1–7, comparison logic, and the CLI.
 
-Setup
+From the repository root:
 
-```
-cd PYTHON
-python3 -m venv .venv
-source .venv/bin/activate             # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-Data
-
-Shared in ../DATA/:
-• ../DATA/IMU/IMU_X002.dat
-• ../DATA/GNSS/GNSS_X002.csv
-• ../DATA/Truth/STATE_X001.txt
-
-New datasets should follow this layout (recommended):
-- IMU logs: `DATA/IMU/IMU_<ID>.dat` (e.g., `IMU_X123.dat`)
-- GNSS logs: `DATA/GNSS/GNSS_<ID>.csv` (e.g., `GNSS_X123.csv`)
-- Optional truth: `DATA/Truth/STATE_<ID>.txt`
-
-Run TRIAD (Task-1)
-
-```
-# From repo root
-python PYTHON/src/run_triad_only.py --dataset X002
-
-# Or from PYTHON directory
-python src/run_triad_only.py --dataset X002
-
-# Optional explicit overrides
-#   --imu/--gnss/--truth/--outdir
+```bash
+python PYTHON/run_pipeline.py --config config/pipeline_small.yaml
+python PYTHON/run_pipeline.py --method SVD --tasks 1-5 \
+  --imu DATA/IMU/IMU_X001_small.dat \
+  --gnss DATA/GNSS/GNSS_X001_small.csv
 ```
 
-Options
-• --imu PATH, --gnss PATH, --truth PATH: dataset files
-• --outdir DIR (default results)
-• --config config/config_small.yml (if supported by the script)
-• --verbose
+Install the canonical package with `python -m pip install -e .`. Legacy scripts under `src/` may require the optional dependencies installed by `python -m pip install -e '.[legacy]'`.
 
-Outputs
-
-Artifacts (PNG/PDF/JSON/txt) are written to PYTHON/results/.
-
-Notes
-- No `PYTHONPATH` needed: entry scripts add `src/` to `sys.path` automatically.
-- `utils` collision resolved: `src/utils/__init__.py` forwards symbols from `utils_legacy`.
-
-Tests (optional)
-
-```
-pip install -r requirements-dev.txt
-pytest -q tests
-```
-
-Using a YAML config (multiple datasets)
-
-- Create a config file like `config/run_example.yml`:
-
-```
-methods: [TRIAD, Davenport, SVD]
-datasets:
-  - imu: DATA/IMU/IMU_X001.dat
-    gnss: DATA/GNSS/GNSS_X001.csv
-  - imu: DATA/IMU/IMU_X002.dat
-    gnss: DATA/GNSS/GNSS_X002.csv
-    init:        # optional per‑dataset initial position override
-      lat_deg: 47.3977
-      lon_deg: 8.5456
-      alt_m:  488.0
-init:            # optional global initial position override (used if per‑dataset missing)
-  lat_deg: 47.3977
-  lon_deg: 8.5456
-  alt_m:  488.0
-```
-
-- Run all cases and collect logs/results:
-
-```
-python src/run_all_datasets.py --config config/run_example.yml --verbose
-```
-
-- Logs: `src/logs/<IMU>_<GNSS>_<METHOD>_<timestamp>.log`
-- Outputs: `PYTHON/results/` (plots, NPZ/MAT, summary CSV)
-
-Initial position override (single run)
-
-If GNSS ECEF does not contain a good first fix, you can override the
-initial latitude/longitude/altitude on the CLI:
-
-```
-python src/GNSS_IMU_Fusion.py \
-  --imu-file DATA/IMU/IMU_X123.dat \
-  --gnss-file DATA/GNSS/GNSS_X123.csv \
-  --method TRIAD \
-  --init-lat-deg 47.3977 --init-lon-deg 8.5456 --init-alt-m 488
-```
-
-
-- Ensure your data lives under `DATA/IMU` and `DATA/GNSS`. If your copy of
-  `run_all_methods.m` looks for files in the repo root (e.g. `IMU_X002.dat`),
-  update it to prefix `DATA/IMU` and `DATA/GNSS`, or move the files accordingly.
-- For running the full pipeline, prefer the Python entry points above.
-
-User manual formatting
-
-- If long commands wrap poorly in your PDF viewer, enable word wrap or reduce
-  the zoom level. All commands here are provided in fenced code blocks which
-  copy/paste cleanly.
-
-Minimal workflow (single dataset)
-
-- Prepare one IMU file and one GNSS file under `DATA/IMU` and `DATA/GNSS`.
-- Edit `config/single_run.yml` to set:
-  - `imu`: path to IMU file
-  - `gnss`: path to GNSS file
-  - `method`: one of `TRIAD|Davenport|SVD` (default TRIAD)
-  - `init.lat_deg`, `init.lon_deg`, `init.alt_m`: launch site position
-- Run the one-shot processor:
-
-```
-python src/process_one.py --config config/single_run.yml --verbose
-```
-
-Outputs
-- Data: `PYTHON/results/<IMU>_<GNSS>_<METHOD>_kf_output.npz` and `.mat`
-
-- Quick view of all key plots (NED position/velocity/acceleration, innovations, residuals, attitude):
-
-```
-plot_all_from_mat('PYTHON/results/IMU_X002_GNSS_X002_TRIAD_kf_output.mat');
-```
-
-- Save every generated figure as .fig and .png for sharing or post‑editing:
-
-```
-```
-
-Notes
+See the repository [README](../README.md) and [input/output contracts](../docs/INPUT_OUTPUT_CONTRACTS.md).

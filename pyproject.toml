@@ -4,55 +4,60 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imu_gnss_fusion"
-version = "1.0.1"
-description = "Python GNSS-IMU fusion and orientation estimation"
+version = "2.0.0"
+description = "Contract-driven Task 1-7 GNSS/IMU fusion with TRIAD, Davenport and SVD"
 authors = [{ name = "VimsRocz" }]
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-  "numpy>=1.26.0",
+  "numpy>=1.26",
+  "matplotlib>=3.8",
+  "pyyaml>=6",
+]
+
+[project.scripts]
+sensor-fusion = "fusion_pipeline.cli:main"
+
+[project.optional-dependencies]
+# Development checks layered on top of the main runtime dependencies.
+tests = [
+    "pytest>=8",
+    "ruff>=0.9",
+]
+
+legacy = [
   "scipy",
   "pandas",
-  "matplotlib",
-  "pyyaml",
   "tqdm",
   "tabulate",
   "rich",
   "filterpy",
   "cartopy",
   "geomaglib>=1.2.1",
+  "pyproj",
   "fastdtw",
+  "plotly>=5",
+  "kaleido",
   "geopy",
 ]
 
-[project.optional-dependencies]
-# Packages needed when running the test suite.  They mirror the
-# main requirements so that `pip install -e .[tests]` pulls in the
-# full runtime stack together with pytest.
-tests = [
-    "numpy",
-    "pandas",
-    "matplotlib",
-    "scipy",
-    "filterpy",
-    "rich",
-    "cartopy",
-    "tqdm",
-    "tabulate",
-    "fastdtw",
-    "geopy",
-    "pytest",
-]
+[tool.setuptools]
+package-dir = {"" = "PYTHON"}
+
+[tool.setuptools.packages.find]
+where = ["PYTHON"]
+include = ["fusion_pipeline*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
-testpaths = ["tests"]
+testpaths = ["PYTHON/tests/pipeline"]
+pythonpath = ["PYTHON"]
 
 [tool.ruff]
-target-version = "py38"
+target-version = "py310"
 line-length = 88
-src = ["src", "tests"]
+src = ["PYTHON/fusion_pipeline", "PYTHON/tests/pipeline"]
 
 [tool.ruff.lint]
 select = ["E", "F"]

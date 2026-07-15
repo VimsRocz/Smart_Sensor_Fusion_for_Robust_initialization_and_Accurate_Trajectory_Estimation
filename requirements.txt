@@ -1,16 +1,7 @@
-numpy>=1.26.0
-scipy
-pandas
-matplotlib
-pyyaml
-tqdm
-tabulate
-rich
-filterpy
-cartopy
-geomaglib>=1.2.1
-pyproj
-fastdtw
-plotly>=5.0
-kaleido
-geopy
+# Canonical Task 1-7 pipeline
+numpy>=1.26
+matplotlib>=3.8
+pyyaml>=6
+
+# Install legacy experimental scripts only when needed:
+#   pip install -e '.[legacy]'
