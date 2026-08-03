@@ -42,7 +42,7 @@ Task 5 is reached once the IMU-only integration from Task 4 completes.  Launch
 the fusion script for a dataset:
 
 ```bash
-python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
+.venv/bin/python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
 ```
 
 The filter iterates over the measurement epochs and prints innovation

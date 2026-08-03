@@ -45,7 +45,7 @@ Body-frame gravity g_body and Earth rate ω_ie_body
 Task 2 executes as part of the main fusion pipeline.  From the repository root run:
 
 ```bash
-python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
+.venv/bin/python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
 ```
 
 The console lists the detected static interval and prints the mean accelerometer

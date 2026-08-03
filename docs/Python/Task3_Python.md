@@ -76,7 +76,7 @@ Task 3 runs automatically after Tasks 1 and 2.  Execute the pipeline for a
 dataset as shown below:
 
 ```bash
-python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
+.venv/bin/python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
 ```
 
 The console reports per‑method attitude errors, while the figures compare the

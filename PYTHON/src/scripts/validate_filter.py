@@ -33,5 +33,5 @@ def plot_residuals(gnss_times, res, results_dir, run_id, method):
 
     fig.suptitle('Position & Velocity Residuals')
     fig.tight_layout(rect=[0, 0, 1, 0.96])
-    save_plot(fig, results_dir, run_id, "task5", f"residuals_{method}")
+    save_plot(fig, results_dir, run_id, "task5_9_3", f"residuals_{method}")
     plt.close(fig)

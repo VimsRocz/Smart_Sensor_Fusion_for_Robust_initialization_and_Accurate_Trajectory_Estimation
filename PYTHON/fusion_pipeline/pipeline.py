@@ -6,23 +6,29 @@ import json
 import os
 import platform
 import sys
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 
+from . import figures as figs
 from .attitude import METHODS, solve_attitude
+from .catalog import COMPARISON_SLUG, TASK_BY_NUMBER, catalog_as_dict
 from .contracts import (
     GnssData,
+    GnssLayout,
     ImuData,
+    ImuLayout,
     TruthData,
+    TruthLayout,
     load_gnss,
     load_imu,
     load_truth,
     validation_summary,
 )
+from .figures import FigureWriter
 from .math3d import (
     align_quaternion_sign,
     ecef_to_geodetic,
@@ -32,13 +38,51 @@ from .math3d import (
     quaternion_multiply,
     quaternion_to_matrix,
 )
+from .report import SILENT, Progress
+
+ALL_METHODS_TOKEN = "ALL"
 
 
 @dataclass
 class PipelineConfig:
-    """All user-adjustable numeric settings, with conservative defaults."""
+    """All user-adjustable settings, with defaults matching the bundled data.
 
+    The ``imu_*``/``gnss_*``/``truth_*`` layout fields exist so a differently
+    formatted log can be read by changing configuration rather than rewriting
+    the data file.
+    """
+
+    # -- IMU file layout --------------------------------------------------
     imu_measurement_type: str = "delta"
+    imu_time_column: int = 1
+    imu_gyro_columns: list[int] = field(default_factory=lambda: [2, 3, 4])
+    imu_accel_columns: list[int] = field(default_factory=lambda: [5, 6, 7])
+    imu_time_unit: str = "s"
+    imu_gyro_unit: str = "rad"
+    imu_accel_unit: str = "mps2"
+    imu_delimiter: str | None = None
+
+    # -- GNSS file layout -------------------------------------------------
+    gnss_column_overrides: dict[str, str] = field(default_factory=dict)
+    gnss_delimiter: str = ","
+    gnss_time_unit: str = "s"
+    gnss_position_unit: str = "m"
+    gnss_velocity_unit: str = "mps"
+
+    # -- Truth file layout ------------------------------------------------
+    truth_time_column: int = 1
+    truth_position_columns: list[int] = field(default_factory=lambda: [2, 3, 4])
+    truth_velocity_columns: list[int] = field(default_factory=lambda: [5, 6, 7])
+    truth_quaternion_columns: list[int] | None = field(default_factory=lambda: [8, 9, 10, 11])
+    truth_quaternion_order: str = "xyzw"
+    truth_quaternion_frame: str = "body_to_ecef"
+    truth_time_unit: str = "s"
+    truth_position_unit: str = "m"
+    truth_velocity_unit: str = "mps"
+    truth_delimiter: str | None = None
+    truth_attitude_time_offset_s: float = -0.05
+
+    # -- Algorithm settings -----------------------------------------------
     static_samples: int = 400
     gravity_override_mps2: float | None = None
     earth_rate_rps: float = 7.292115e-5
@@ -49,28 +93,71 @@ class PipelineConfig:
     gnss_velocity_std_mps: float = 0.5
     max_specific_force_mps2: float = 100.0
     max_angular_rate_rps: float = 20.0
-    truth_quaternion_order: str = "xyzw"
-    truth_quaternion_frame: str = "body_to_ecef"
-    truth_attitude_time_offset_s: float = -0.05
+
+    # -- Output settings --------------------------------------------------
     max_plot_points: int = 50000
+    plot_dpi: int = 160
     plots: bool = True
 
     @classmethod
     def from_mapping(cls, values: dict[str, Any] | None) -> "PipelineConfig":
         values = values or {}
-        allowed = {field.name for field in fields(cls)}
+        allowed = {item.name for item in fields(cls)}
         unknown = sorted(set(values) - allowed)
         if unknown:
-            raise ValueError(f"Unknown pipeline configuration keys: {', '.join(unknown)}")
+            raise ValueError(
+                f"Unknown pipeline configuration keys: {', '.join(unknown)}. "
+                f"Accepted keys: {', '.join(sorted(allowed))}"
+            )
         cfg = cls(**values)
         cfg.validate()
         return cfg
 
+    # -- layout construction ---------------------------------------------
+    def imu_layout(self) -> ImuLayout:
+        return ImuLayout(
+            time_column=int(self.imu_time_column),
+            gyro_columns=tuple(int(v) for v in self.imu_gyro_columns),  # type: ignore[arg-type]
+            accel_columns=tuple(int(v) for v in self.imu_accel_columns),  # type: ignore[arg-type]
+            measurement_type=self.imu_measurement_type,
+            time_unit=self.imu_time_unit,
+            gyro_unit=self.imu_gyro_unit,
+            accel_unit=self.imu_accel_unit,
+            delimiter=self.imu_delimiter,
+        )
+
+    def gnss_layout(self) -> GnssLayout:
+        return GnssLayout(
+            column_overrides=dict(self.gnss_column_overrides),
+            delimiter=self.gnss_delimiter,
+            time_unit=self.gnss_time_unit,
+            position_unit=self.gnss_position_unit,
+            velocity_unit=self.gnss_velocity_unit,
+        )
+
+    def truth_layout(self) -> TruthLayout:
+        quaternion_columns = (
+            None
+            if self.truth_quaternion_columns is None
+            else tuple(int(v) for v in self.truth_quaternion_columns)
+        )
+        return TruthLayout(
+            time_column=int(self.truth_time_column),
+            position_columns=tuple(int(v) for v in self.truth_position_columns),  # type: ignore[arg-type]
+            velocity_columns=tuple(int(v) for v in self.truth_velocity_columns),  # type: ignore[arg-type]
+            quaternion_columns=quaternion_columns,  # type: ignore[arg-type]
+            quaternion_order=self.truth_quaternion_order,
+            time_unit=self.truth_time_unit,
+            position_unit=self.truth_position_unit,
+            velocity_unit=self.truth_velocity_unit,
+            delimiter=self.truth_delimiter,
+        )
+
     def validate(self) -> None:
-        if self.imu_measurement_type not in {"delta", "rate"}:
-            raise ValueError("imu_measurement_type must be 'delta' or 'rate'")
-        if self.truth_quaternion_order not in {"wxyz", "xyzw"}:
-            raise ValueError("truth_quaternion_order must be 'wxyz' or 'xyzw'")
+        # Layout validation lives with the readers so one rule has one home.
+        self.imu_layout().validate()
+        self.gnss_layout().validate()
+        self.truth_layout().validate()
         if self.truth_quaternion_frame not in {"body_to_ned", "body_to_ecef"}:
             raise ValueError("truth_quaternion_frame must be 'body_to_ned' or 'body_to_ecef'")
         if not np.isfinite(self.truth_attitude_time_offset_s) or abs(self.truth_attitude_time_offset_s) > 10:
@@ -87,6 +174,7 @@ class PipelineConfig:
             "max_specific_force_mps2",
             "max_angular_rate_rps",
             "max_plot_points",
+            "plot_dpi",
         )
         for key in positive:
             if float(getattr(self, key)) <= 0:
@@ -126,12 +214,37 @@ def _save_npz(path: Path, **arrays: Any) -> Path:
 def _canonical_method(method: str) -> str:
     match = next((name for name in METHODS if name.lower() == str(method).lower()), None)
     if match is None:
-        raise ValueError(f"Unknown method {method!r}; choose {', '.join(METHODS)} or ALL")
+        raise ValueError(
+            f"Unknown method {method!r}; choose {', '.join(METHODS)} or {ALL_METHODS_TOKEN}"
+        )
     return match
 
 
+def parse_methods(specification: str | Iterable[str]) -> list[str]:
+    """Resolve a method selection into an ordered, de-duplicated method list.
+
+    Accepts ``"TRIAD"``, ``"triad,svd"``, ``"ALL"``, or any iterable of names.
+    Order always follows :data:`METHODS` so comparison artifacts are stable.
+    """
+    if isinstance(specification, str):
+        tokens = [token.strip() for token in specification.split(",") if token.strip()]
+    else:
+        tokens = [str(token).strip() for token in specification if str(token).strip()]
+    if not tokens:
+        raise ValueError("No attitude method was selected")
+    if any(token.upper() == ALL_METHODS_TOKEN for token in tokens):
+        if len(tokens) > 1:
+            raise ValueError(f"{ALL_METHODS_TOKEN} cannot be combined with individual method names")
+        return list(METHODS)
+    selected = [_canonical_method(token) for token in tokens]
+    duplicates = sorted({name for name in selected if selected.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"Method list contains duplicates: {', '.join(duplicates)}")
+    return [name for name in METHODS if name in selected]
+
+
 def _safe_name(value: str) -> str:
-    return "".join(char if char.isalnum() or char in "-_." else "_" for char in value)
+    return figs.safe_token(value)
 
 
 def parse_tasks(specification: str | Iterable[int]) -> tuple[list[int], list[int]]:
@@ -158,93 +271,21 @@ def parse_tasks(specification: str | Iterable[int]) -> tuple[list[int], list[int
     return sorted(requested), expanded
 
 
-def _task_dir(run_dir: Path, number: int, slug: str) -> Path:
-    path = run_dir / f"task_{number:02d}_{slug}"
+def _task_dir(run_dir: Path, number: int) -> Path:
+    path = run_dir / TASK_BY_NUMBER[number].directory_name
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _plot_import():
-    import matplotlib
-
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
-
-    return plt
-
-
-def _stride(length: int, max_points: int) -> int:
-    return max(1, int(np.ceil(length / max_points)))
-
-
-def _plot_task1(path: Path, lat_deg: float, lon_deg: float) -> None:
-    plt = _plot_import()
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.scatter([lon_deg], [lat_deg], color="crimson", s=45, label="Initial GNSS fix")
-    ax.set(xlim=(-180, 180), ylim=(-90, 90), xlabel="Longitude [deg]", ylabel="Latitude [deg]")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    ax.set_title("Task 1.2 — Reference location")
-    fig.tight_layout()
-    fig.savefig(path, dpi=160)
-    plt.close(fig)
-
-
-def _plot_task2(path: Path, imu: ImuData, start: int, end: int, max_points: int) -> None:
-    plt = _plot_import()
-    step = _stride(len(imu.time_s), max_points)
-    t = imu.time_s[::step]
-    fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-    labels = ("x", "y", "z")
-    for axis, values, unit in zip(axes, (imu.accel_mps2, imu.gyro_rps), ("m/s²", "rad/s")):
-        for index, label in enumerate(labels):
-            axis.plot(t, values[::step, index], label=label, linewidth=0.9)
-        axis.axvspan(imu.time_s[start], imu.time_s[end - 1], color="gold", alpha=0.2, label="static window")
-        axis.set_ylabel(unit)
-        axis.grid(True, alpha=0.3)
-    axes[0].legend(ncol=4)
-    axes[1].set_xlabel("Time [s]")
-    fig.suptitle("Task 2 — IMU body vectors and selected static interval")
-    fig.tight_layout()
-    fig.savefig(path, dpi=160)
-    plt.close(fig)
-
-
-def _plot_task3(path: Path, quaternion: np.ndarray, errors: dict[str, float], method: str) -> None:
-    plt = _plot_import()
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    axes[0].bar(("w", "x", "y", "z"), quaternion, color="tab:blue")
-    axes[0].set_ylim(-1.05, 1.05)
-    axes[0].set_title("Normalized Body→NED quaternion")
-    axes[0].grid(True, axis="y", alpha=0.3)
-    axes[1].bar(("Gravity", "Earth rate"), (errors["gravity_error_deg"], errors["earth_rate_error_deg"]), color=("tab:green", "tab:orange"))
-    axes[1].set_ylabel("Vector alignment error [deg]")
-    axes[1].grid(True, axis="y", alpha=0.3)
-    fig.suptitle(f"Task 3 — {method} initial attitude")
-    fig.tight_layout()
-    fig.savefig(path, dpi=160)
-    plt.close(fig)
-
-
-def _plot_state_grid(path: Path, title: str, time_s: np.ndarray, position: np.ndarray, velocity: np.ndarray, max_points: int) -> None:
-    plt = _plot_import()
-    step = _stride(len(time_s), max_points)
-    t, p, v = time_s[::step], position[::step], velocity[::step]
-    fig, axes = plt.subplots(2, 3, figsize=(13, 6), sharex=True)
-    labels = ("North", "East", "Down")
-    for index, label in enumerate(labels):
-        axes[0, index].plot(t, p[:, index], color="tab:blue")
-        axes[0, index].set_title(label)
-        axes[0, index].set_ylabel("Position [m]")
-        axes[1, index].plot(t, v[:, index], color="tab:orange")
-        axes[1, index].set_ylabel("Velocity [m/s]")
-        axes[1, index].set_xlabel("Time [s]")
-        axes[0, index].grid(True, alpha=0.3)
-        axes[1, index].grid(True, alpha=0.3)
-    fig.suptitle(title)
-    fig.tight_layout()
-    fig.savefig(path, dpi=160)
-    plt.close(fig)
+def _task_header(number: int) -> dict[str, Any]:
+    task = TASK_BY_NUMBER[number]
+    return {
+        "task": task.number,
+        "name": task.name,
+        "purpose": task.purpose,
+        "directory": task.directory_name,
+        "subtasks": task.subtask_map,
+    }
 
 
 def _normal_gravity(lat_rad: float, altitude_m: float) -> float:
@@ -253,7 +294,18 @@ def _normal_gravity(lat_rad: float, altitude_m: float) -> float:
     return float(surface - 3.086e-6 * altitude_m)
 
 
-def _task1(gnss: GnssData, imu: ImuData, truth: TruthData | None, cfg: PipelineConfig, directory: Path) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Task 1
+# ---------------------------------------------------------------------------
+def _task1(
+    gnss: GnssData,
+    imu: ImuData,
+    truth: TruthData | None,
+    cfg: PipelineConfig,
+    directory: Path,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
+) -> dict[str, Any]:
     origin = gnss.position_ecef_m[0]
     lat, lon, altitude = ecef_to_geodetic(origin)
     c_ecef_to_ned = ecef_to_ned_matrix(lat, lon)
@@ -265,13 +317,7 @@ def _task1(gnss: GnssData, imu: ImuData, truth: TruthData | None, cfg: PipelineC
     )
     omega_ned = cfg.earth_rate_rps * np.array([np.cos(lat), 0.0, -np.sin(lat)])
     summary = {
-        "task": 1,
-        "name": "Input validation and reference navigation vectors",
-        "subtasks": {
-            "1.1": "Validate and normalize IMU/GNSS/truth inputs",
-            "1.2": "Derive WGS-84 origin from first GNSS ECEF fix",
-            "1.3": "Compute local gravity and Earth-rate vectors in NED",
-        },
+        **_task_header(1),
         "validation": validation_summary(imu, gnss, truth),
         "origin_ecef_m": origin,
         "latitude_deg": np.degrees(lat),
@@ -284,12 +330,42 @@ def _task1(gnss: GnssData, imu: ImuData, truth: TruthData | None, cfg: PipelineC
         "earth_rate_reference_ned_rps": omega_ned,
         "c_ecef_to_ned": c_ecef_to_ned,
     }
+    validation = summary["validation"]
+    imu_info, gnss_info, truth_info = validation["imu"], validation["gnss"], validation["truth"]
+    progress.subtask(
+        "1.1",
+        f"IMU {imu_info['rows']} rows @ {imu_info['sample_rate_hz']:.1f} Hz"
+        f" · GNSS {gnss_info['rows']} epochs"
+        + (f" · Truth {truth_info['rows']} states" if truth_info else " · no truth file")
+        + (f" · {imu_info['clock_wraps_repaired']} clock resets repaired"
+           if imu_info["clock_wraps_repaired"] else ""),
+    )
+    progress.subtask(
+        "1.2",
+        f"origin lat {np.degrees(lat):.6f}°, lon {np.degrees(lon):.6f}°, alt {altitude:.2f} m",
+    )
+    progress.subtask(
+        "1.3",
+        f"gravity {gravity:.6f} m/s² · Earth rate {cfg.earth_rate_rps:.6e} rad/s",
+    )
     _write_json(directory / "reference.json", summary)
-    if cfg.plots:
-        _plot_task1(directory / "reference_location.png", np.degrees(lat), np.degrees(lon))
+    figs.draw_task1(
+        writer,
+        directory,
+        {
+            "imu": imu,
+            "gnss": gnss,
+            "truth": truth,
+            "task1": summary,
+            "earth_rate_rps": cfg.earth_rate_rps,
+        },
+    )
     return {**summary, "lat_rad": lat, "lon_rad": lon}
 
 
+# ---------------------------------------------------------------------------
+# Task 2
+# ---------------------------------------------------------------------------
 def _rolling_static_window(imu: ImuData, requested: int) -> tuple[int, int, np.ndarray]:
     window = min(int(requested), len(imu.time_s))
     if window < 20:
@@ -303,24 +379,32 @@ def _rolling_static_window(imu: ImuData, requested: int) -> tuple[int, int, np.n
     return start, start + window, variance
 
 
-def _task2(imu: ImuData, task1: dict[str, Any], cfg: PipelineConfig, directory: Path) -> dict[str, Any]:
+def _task2(
+    imu: ImuData,
+    task1: dict[str, Any],
+    cfg: PipelineConfig,
+    directory: Path,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
+) -> dict[str, Any]:
     start, end, variances = _rolling_static_window(imu, cfg.static_samples)
     mean_accel = np.mean(imu.accel_mps2[start:end], axis=0)
     mean_gyro = np.mean(imu.gyro_rps[start:end], axis=0)
-    body_vectors = np.vstack([normalize(mean_accel, "static specific force"), normalize(mean_gyro, "static angular rate")])
+    body_vectors = np.vstack(
+        [normalize(mean_accel, "static specific force"), normalize(mean_gyro, "static angular rate")]
+    )
     reference_vectors = np.vstack(
-        [normalize(np.asarray(task1["specific_force_reference_ned_mps2"])), normalize(np.asarray(task1["earth_rate_reference_ned_rps"]))]
+        [
+            normalize(np.asarray(task1["specific_force_reference_ned_mps2"])),
+            normalize(np.asarray(task1["earth_rate_reference_ned_rps"])),
+        ]
     )
     summary = {
-        "task": 2,
-        "name": "Static interval and measured body vectors",
-        "subtasks": {
-            "2.1": "Convert delta IMU measurements to SI rates when configured",
-            "2.2": "Select the minimum-variance static window",
-            "2.3": "Average and normalize specific-force/Earth-rate body vectors",
-        },
+        **_task_header(2),
         "static_start_index": start,
         "static_end_index_exclusive": end,
+        "static_start_time_s": float(imu.time_s[start]),
+        "static_end_time_s": float(imu.time_s[end - 1]),
         "static_duration_s": float(imu.time_s[end - 1] - imu.time_s[start] + imu.dt_s),
         "static_feature_variance": float(variances[start]),
         "mean_accel_body_mps2": mean_accel,
@@ -328,13 +412,47 @@ def _task2(imu: ImuData, task1: dict[str, Any], cfg: PipelineConfig, directory: 
         "body_vectors_unit": body_vectors,
         "reference_vectors_unit": reference_vectors,
     }
+    progress.subtask(
+        "2.1",
+        f"{len(imu.time_s)} samples as '{cfg.imu_measurement_type}'"
+        f" → rad/s and m/s² at {1.0 / imu.dt_s:.1f} Hz",
+    )
+    progress.subtask(
+        "2.2",
+        f"samples {start}–{end - 1} ({imu.time_s[start]:.3f}–{imu.time_s[end - 1]:.3f} s)"
+        f", variance {float(variances[start]):.3e}",
+    )
+    progress.subtask(
+        "2.3",
+        f"|specific force| {np.linalg.norm(mean_accel):.4f} m/s²"
+        f" · |angular rate| {np.linalg.norm(mean_gyro):.3e} rad/s",
+    )
     _write_json(directory / "body_vectors.json", summary)
-    if cfg.plots:
-        _plot_task2(directory / "static_interval.png", imu, start, end, cfg.max_plot_points)
+    figs.draw_task2(
+        writer,
+        directory,
+        {
+            "imu": imu,
+            "task2": summary,
+            "variances": variances,
+            "imu_measurement_type": cfg.imu_measurement_type,
+        },
+    )
     return summary
 
 
-def _task3(method: str, task1: dict[str, Any], task2: dict[str, Any], cfg: PipelineConfig, directory: Path) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Task 3
+# ---------------------------------------------------------------------------
+def _task3(
+    method: str,
+    task1: dict[str, Any],
+    task2: dict[str, Any],
+    cfg: PipelineConfig,
+    directory: Path,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
+) -> dict[str, Any]:
     c_b2n, q_wxyz, errors = solve_attitude(
         method,
         np.asarray(task2["body_vectors_unit"]),
@@ -346,14 +464,8 @@ def _task3(method: str, task1: dict[str, Any], task2: dict[str, Any], cfg: Pipel
     accel_bias = np.asarray(task2["mean_accel_body_mps2"]) - expected_accel_body
     gyro_bias = np.asarray(task2["mean_gyro_body_rps"]) - expected_gyro_body
     summary = {
-        "task": 3,
-        "name": "Initial attitude and IMU biases",
+        **_task_header(3),
         "method": method,
-        "subtasks": {
-            "3.1": "Solve Body-to-NED Wahba alignment",
-            "3.2": "Normalize scalar-first quaternion [w,x,y,z]",
-            "3.3": "Estimate accelerometer and gyro bias in the chosen attitude",
-        },
         "c_body_to_ned": c_b2n,
         "quaternion_wxyz_body_to_ned": q_wxyz,
         "quaternion_norm": float(np.linalg.norm(q_wxyz)),
@@ -361,12 +473,29 @@ def _task3(method: str, task1: dict[str, Any], task2: dict[str, Any], cfg: Pipel
         "gyro_bias_body_rps": gyro_bias,
         **errors,
     }
+    progress.subtask(
+        "3.1",
+        f"{method}: gravity error {errors['gravity_error_deg']:.4g}°"
+        f" · Earth-rate error {errors['earth_rate_error_deg']:.4g}°",
+    )
+    progress.subtask(
+        "3.2",
+        "q_wxyz = [" + ", ".join(f"{value:.6f}" for value in q_wxyz) + "]"
+        f", |q| = {float(np.linalg.norm(q_wxyz)):.12f}",
+    )
+    progress.subtask(
+        "3.3",
+        f"|accel bias| {np.linalg.norm(accel_bias):.5f} m/s²"
+        f" · |gyro bias| {np.linalg.norm(gyro_bias):.3e} rad/s",
+    )
     _write_json(directory / "initial_attitude.json", summary)
-    if cfg.plots:
-        _plot_task3(directory / "initial_attitude.png", q_wxyz, errors, method)
+    figs.draw_task3(writer, directory, {"task3": summary, "method": method})
     return summary
 
 
+# ---------------------------------------------------------------------------
+# Task 4
+# ---------------------------------------------------------------------------
 def _interpolate_range_outliers(time_s: np.ndarray, values: np.ndarray, limit: float) -> tuple[np.ndarray, int]:
     valid = np.all(np.isfinite(values), axis=1) & (np.linalg.norm(values, axis=1) <= limit)
     rejected = int(np.count_nonzero(~valid))
@@ -386,7 +515,7 @@ def _propagate_attitude_and_acceleration(
     task1: dict[str, Any],
     task3: dict[str, Any],
     cfg: PipelineConfig,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
+) -> dict[str, Any]:
     q = np.asarray(task3["quaternion_wxyz_body_to_ned"], dtype=float)
     accel_bias = np.asarray(task3["accel_bias_body_mps2"], dtype=float)
     gyro_bias = np.asarray(task3["gyro_bias_body_rps"], dtype=float)
@@ -439,52 +568,111 @@ def _propagate_attitude_and_acceleration(
             position[index] = position[index - 1] + 0.5 * (
                 velocity[index - 1] + velocity[index]
             ) * dt
-    return quaternions, acceleration_ned, position, velocity, {
-        "accelerometer_samples_interpolated": accel_rejected,
-        "gyroscope_samples_interpolated": gyro_rejected,
+    return {
+        "quaternion": quaternions,
+        "acceleration": acceleration_ned,
+        "position": position,
+        "velocity": velocity,
+        "accel_screened": accel,
+        "gyro_screened": gyro,
+        "range_screening": {
+            "accelerometer_samples_interpolated": accel_rejected,
+            "gyroscope_samples_interpolated": gyro_rejected,
+        },
     }
 
 
-def _task4(imu: ImuData, gnss: GnssData, task1: dict[str, Any], task3: dict[str, Any], cfg: PipelineConfig, directory: Path) -> dict[str, Any]:
-    quaternions, acceleration, position, velocity, range_screening = (
-        _propagate_attitude_and_acceleration(imu, gnss, task1, task3, cfg)
-    )
+def _task4(
+    imu: ImuData,
+    gnss: GnssData,
+    task1: dict[str, Any],
+    task3: dict[str, Any],
+    cfg: PipelineConfig,
+    directory: Path,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
+) -> dict[str, Any]:
+    propagated = _propagate_attitude_and_acceleration(imu, gnss, task1, task3, cfg)
     artifact = _save_npz(
         directory / "inertial_solution.npz",
         time_s=imu.time_s,
-        position_ned_m=position,
-        velocity_ned_mps=velocity,
-        acceleration_ned_mps2=acceleration,
-        quaternion_wxyz=quaternions,
+        position_ned_m=propagated["position"],
+        velocity_ned_mps=propagated["velocity"],
+        acceleration_ned_mps2=propagated["acceleration"],
+        quaternion_wxyz=propagated["quaternion"],
     )
     summary = {
-        "task": 4,
-        "name": "IMU-only strapdown propagation",
-        "subtasks": {
-            "4.1": "Screen physical-range outliers and correct IMU using Task 3 biases",
-            "4.2": "Propagate Body-to-NED quaternion with Earth and transport rates",
-            "4.3": "Apply Coriolis compensation and integrate NED state",
-        },
+        **_task_header(4),
         "samples": len(imu.time_s),
         "duration_s": float(imu.time_s[-1]),
-        "range_screening": range_screening,
+        "range_screening": propagated["range_screening"],
         "artifact": str(artifact),
-        "final_position_ned_m": position[-1],
-        "final_velocity_ned_mps": velocity[-1],
+        "final_position_ned_m": propagated["position"][-1],
+        "final_velocity_ned_mps": propagated["velocity"][-1],
     }
+    screened = propagated["range_screening"]
+    progress.subtask(
+        "4.1",
+        f"{screened['accelerometer_samples_interpolated']} accel and"
+        f" {screened['gyroscope_samples_interpolated']} gyro samples interpolated"
+        f" beyond {cfg.max_specific_force_mps2:g} m/s² / {cfg.max_angular_rate_rps:g} rad/s",
+    )
+    progress.subtask(
+        "4.2",
+        f"{len(imu.time_s)} samples propagated"
+        f", final |q| = {float(np.linalg.norm(propagated['quaternion'][-1])):.12f}",
+    )
+    final_position = propagated["position"][-1]
+    progress.subtask(
+        "4.3",
+        f"final IMU-only position N {final_position[0]:.2f}"
+        f" E {final_position[1]:.2f} D {final_position[2]:.2f} m",
+    )
     _write_json(directory / "summary.json", summary)
-    if cfg.plots:
-        _plot_state_grid(directory / "inertial_solution.png", "Task 4 — IMU-only solution", imu.time_s, position, velocity, cfg.max_plot_points)
-    return {**summary, "time_s": imu.time_s, "position": position, "velocity": velocity, "acceleration": acceleration, "quaternion": quaternions}
+    result = {
+        **summary,
+        "time_s": imu.time_s,
+        "position": propagated["position"],
+        "velocity": propagated["velocity"],
+        "acceleration": propagated["acceleration"],
+        "quaternion": propagated["quaternion"],
+    }
+    figs.draw_task4(
+        writer,
+        directory,
+        {
+            "imu": imu,
+            "task4": result,
+            "accel_screened": propagated["accel_screened"],
+            "gyro_screened": propagated["gyro_screened"],
+            "accel_bias": task3["accel_bias_body_mps2"],
+            "gyro_bias": task3["gyro_bias_body_rps"],
+            "max_specific_force": cfg.max_specific_force_mps2,
+            "max_angular_rate": cfg.max_angular_rate_rps,
+        },
+    )
+    return result
 
 
+# ---------------------------------------------------------------------------
+# Task 5
+# ---------------------------------------------------------------------------
 def _gnss_ned(gnss: GnssData, task1: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     c = np.asarray(task1["c_ecef_to_ned"])
     origin = np.asarray(task1["origin_ecef_m"])
     return (c @ (gnss.position_ecef_m - origin).T).T, (c @ gnss.velocity_ecef_mps.T).T
 
 
-def _task5(imu: ImuData, gnss: GnssData, task1: dict[str, Any], task4: dict[str, Any], cfg: PipelineConfig, directory: Path) -> dict[str, Any]:
+def _task5(
+    imu: ImuData,
+    gnss: GnssData,
+    task1: dict[str, Any],
+    task4: dict[str, Any],
+    cfg: PipelineConfig,
+    directory: Path,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
+) -> dict[str, Any]:
     gnss_position, gnss_velocity = _gnss_ned(gnss, task1)
     state = np.r_[gnss_position[0], gnss_velocity[0]]
     covariance = np.diag([cfg.gnss_position_std_m**2] * 3 + [cfg.gnss_velocity_std_mps**2] * 3)
@@ -513,6 +701,7 @@ def _task5(imu: ImuData, gnss: GnssData, task1: dict[str, Any], task4: dict[str,
             gnss_index += 1
         position[index], velocity[index] = state[:3], state[3:]
     innovations_array = np.asarray(innovations, dtype=float).reshape(-1, 6)
+    innovation_times_array = np.asarray(innovation_times, dtype=float)
     artifact = _save_npz(
         directory / "fused_solution.npz",
         time_s=imu.time_s,
@@ -520,31 +709,64 @@ def _task5(imu: ImuData, gnss: GnssData, task1: dict[str, Any], task4: dict[str,
         velocity_ned_mps=velocity,
         acceleration_ned_mps2=task4["acceleration"],
         quaternion_wxyz=task4["quaternion"],
-        innovation_time_s=np.asarray(innovation_times),
+        innovation_time_s=innovation_times_array,
         innovations=innovations_array,
     )
     summary = {
-        "task": 5,
-        "name": "GNSS/IMU Kalman fusion",
-        "subtasks": {
-            "5.1": "Predict six-state NED position/velocity from IMU acceleration",
-            "5.2": "Update with asynchronous GNSS ECEF position/velocity converted to NED",
-            "5.3": "Save fused state and innovation history",
-        },
+        **_task_header(5),
         "samples": len(imu.time_s),
         "gnss_updates": len(innovations_array),
         "artifact": str(artifact),
         "final_position_ned_m": position[-1],
         "final_velocity_ned_mps": velocity[-1],
     }
+    progress.subtask("5.1", f"{len(imu.time_s)} prediction steps from Task 4 acceleration")
+    progress.subtask(
+        "5.2",
+        f"{len(innovations_array)} GNSS updates applied"
+        + (
+            f" · final |innovation| {float(np.linalg.norm(innovations_array[-1, :3])):.3f} m"
+            if len(innovations_array)
+            else ""
+        ),
+    )
+    progress.subtask(
+        "5.3",
+        f"final fused position N {position[-1, 0]:.2f}"
+        f" E {position[-1, 1]:.2f} D {position[-1, 2]:.2f} m",
+    )
     _write_json(directory / "summary.json", summary)
-    if cfg.plots:
-        _plot_state_grid(directory / "fused_solution.png", "Task 5 — GNSS/IMU fused solution", imu.time_s, position, velocity, cfg.max_plot_points)
-    return {**summary, "time_s": imu.time_s, "position": position, "velocity": velocity, "acceleration": task4["acceleration"], "quaternion": task4["quaternion"], "innovation_times": np.asarray(innovation_times), "innovations": innovations_array}
+    result = {
+        **summary,
+        "time_s": imu.time_s,
+        "position": position,
+        "velocity": velocity,
+        "acceleration": task4["acceleration"],
+        "quaternion": task4["quaternion"],
+        "innovation_times": innovation_times_array,
+        "innovations": innovations_array,
+    }
+    figs.draw_task5(
+        writer,
+        directory,
+        {
+            "task4": task4,
+            "task5": result,
+            "gnss_time_s": gnss.time_s,
+            "gnss_position_ned": gnss_position,
+            "gnss_velocity_ned": gnss_velocity,
+        },
+    )
+    return result
 
 
+# ---------------------------------------------------------------------------
+# Task 6
+# ---------------------------------------------------------------------------
 def _interp_columns(source_time: np.ndarray, values: np.ndarray, target_time: np.ndarray) -> np.ndarray:
-    return np.column_stack([np.interp(target_time, source_time, values[:, index]) for index in range(values.shape[1])])
+    return np.column_stack(
+        [np.interp(target_time, source_time, values[:, index]) for index in range(values.shape[1])]
+    )
 
 
 def _truth_on_fused_grid(
@@ -578,14 +800,10 @@ def _truth_on_fused_grid(
             truth_source = np.vstack(
                 [
                     matrix_to_quaternion_wxyz(
-                        ecef_to_ned_matrix(
-                            *ecef_to_geodetic(position)[:2]
-                        )
+                        ecef_to_ned_matrix(*ecef_to_geodetic(position)[:2])
                         @ quaternion_to_matrix(quaternion)
                     )
-                    for quaternion, position in zip(
-                        truth_source, truth.position_ecef_m
-                    )
+                    for quaternion, position in zip(truth_source, truth.position_ecef_m)
                 ]
             )
         for index in range(1, len(truth_source)):
@@ -598,82 +816,37 @@ def _truth_on_fused_grid(
         )
         truth_q /= np.linalg.norm(truth_q, axis=1, keepdims=True)
         estimate_q = output["estimated_quaternion"]
-        estimate_q /= np.linalg.norm(estimate_q, axis=1, keepdims=True)
+        estimate_q = estimate_q / np.linalg.norm(estimate_q, axis=1, keepdims=True)
         output["truth_quaternion"] = truth_q
         output["estimated_quaternion"] = align_quaternion_sign(truth_q, estimate_q)
     return output
 
 
-def _plot_task6(directory: Path, overlay: dict[str, np.ndarray], max_points: int) -> None:
-    plt = _plot_import()
-    step = _stride(len(overlay["time_s"]), max_points)
-    t = overlay["time_s"][::step]
-    ep, tp = overlay["estimated_position"][::step], overlay["truth_position"][::step]
-    ev, tv = overlay["estimated_velocity"][::step], overlay["truth_velocity"][::step]
-    fig, axes = plt.subplots(2, 3, figsize=(13, 6), sharex=True)
-    for index, label in enumerate(("North", "East", "Down")):
-        axes[0, index].plot(t, ep[:, index], label="Fused")
-        axes[0, index].plot(t, tp[:, index], "--", label="Truth")
-        axes[0, index].set_title(label)
-        axes[0, index].set_ylabel("Position [m]")
-        axes[1, index].plot(t, ev[:, index], label="Fused")
-        axes[1, index].plot(t, tv[:, index], "--", label="Truth")
-        axes[1, index].set_ylabel("Velocity [m/s]")
-        axes[1, index].set_xlabel("Time [s]")
-        for axis in axes[:, index]:
-            axis.grid(True, alpha=0.3)
-    axes[0, 0].legend()
-    fig.suptitle("Task 6 — Fused state against truth in common NED frame")
-    fig.tight_layout()
-    fig.savefig(directory / "truth_overlay_ned.png", dpi=160)
-    plt.close(fig)
-
-    # Height is explicitly -Down in NED. Plotting ECEF Z or quaternion
-    # components as height was the source of the previous mismatch.
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(t, -ep[:, 2], label="Fused height")
-    ax.plot(t, -tp[:, 2], "--", label="Truth height")
-    ax.set(xlabel="Time [s]", ylabel="Relative height [m]", title="Task 6.3 — Height comparison (height = −NED Down)")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(directory / "height_comparison.png", dpi=160)
-    plt.close(fig)
-
-    if "truth_quaternion" in overlay:
-        eq, tq = overlay["estimated_quaternion"][::step], overlay["truth_quaternion"][::step]
-        fig, axes = plt.subplots(2, 2, figsize=(11, 7), sharex=True)
-        for index, (axis, name) in enumerate(zip(axes.flat, ("w", "x", "y", "z"))):
-            axis.plot(t, eq[:, index], label="Fused")
-            axis.plot(t, tq[:, index], "--", label="Truth")
-            axis.set_title(f"q{name}")
-            axis.grid(True, alpha=0.3)
-            axis.ticklabel_format(axis="y", style="plain", useOffset=False)
-        axes[0, 0].legend()
-        fig.suptitle("Task 6.4 — Normalized, sign-aligned Body→NED quaternions")
-        fig.tight_layout()
-        fig.savefig(directory / "quaternion_comparison.png", dpi=160)
-        plt.close(fig)
-
-
-def _task6(truth: TruthData | None, task1: dict[str, Any], task5: dict[str, Any], cfg: PipelineConfig, directory: Path) -> dict[str, Any]:
+def _task6(
+    truth: TruthData | None,
+    task1: dict[str, Any],
+    task5: dict[str, Any],
+    cfg: PipelineConfig,
+    directory: Path,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
+) -> dict[str, Any]:
     if truth is None:
         summary = {
-            "task": 6,
-            "name": "Truth overlay",
+            **_task_header(6),
             "status": "skipped",
             "reason": "No truth file was supplied; Tasks 1-5 remain valid",
-            "subtasks": {"6.1": "Align truth time", "6.2": "Convert truth ECEF to common NED", "6.3": "Compare height as -NED Down", "6.4": "Normalize/sign-align quaternions"},
         }
         _write_json(directory / "summary.json", summary)
+        for number in ("6.1", "6.2", "6.3", "6.4"):
+            progress.subtask(number, "skipped — no truth file was supplied")
+        figs.skip_task6(writer, "no truth file was supplied")
         return summary
     overlay = _truth_on_fused_grid(truth, task1, task5, cfg)
     artifact = _save_npz(directory / "truth_overlay.npz", **overlay)
     summary = {
-        "task": 6,
-        "name": "Truth overlay",
+        **_task_header(6),
         "status": "complete",
-        "subtasks": {"6.1": "Align truth time", "6.2": "Convert truth ECEF to common NED", "6.3": "Compare height as -NED Down", "6.4": "Normalize/sign-align quaternions"},
         "samples": len(overlay["time_s"]),
         "artifact": str(artifact),
         "height_definition": "height_m = -position_ned_down_m",
@@ -682,39 +855,62 @@ def _task6(truth: TruthData | None, task1: dict[str, Any], task5: dict[str, Any]
         "truth_source_quaternion_frame": cfg.truth_quaternion_frame,
         "attitude_reference_frame": "time-varying local NED at each truth ECEF position",
         "truth_attitude_time_offset_s": cfg.truth_attitude_time_offset_s,
+        "has_truth_attitude": "truth_quaternion" in overlay,
     }
+    progress.subtask(
+        "6.1",
+        f"{len(overlay['time_s'])} overlapping samples"
+        f" ({overlay['time_s'][0]:.3f}–{overlay['time_s'][-1]:.3f} s)"
+        f" · attitude offset {cfg.truth_attitude_time_offset_s:+.3f} s",
+    )
+    truth_ned = overlay["truth_position"]
+    progress.subtask(
+        "6.2",
+        f"truth NED extent N {truth_ned[:, 0].min():.1f}…{truth_ned[:, 0].max():.1f}"
+        f" E {truth_ned[:, 1].min():.1f}…{truth_ned[:, 1].max():.1f} m"
+        f" about the Task 1 origin",
+    )
+    heights = -overlay["truth_position"][:, 2]
+    progress.subtask(
+        "6.3",
+        f"truth height {heights.min():.2f} → {heights.max():.2f} m (height = -NED Down)",
+    )
+    progress.subtask(
+        "6.4",
+        "quaternions normalised and hemisphere-aligned to truth"
+        if "truth_quaternion" in overlay
+        else "truth file has no quaternion columns",
+    )
     _write_json(directory / "summary.json", summary)
-    if cfg.plots:
-        _plot_task6(directory, overlay, cfg.max_plot_points)
+    figs.draw_task6(
+        writer,
+        directory,
+        {
+            "overlay": overlay,
+            "estimate_time_s": task5["time_s"],
+            "truth_time_s": truth.time_s,
+            "attitude_offset_s": cfg.truth_attitude_time_offset_s,
+        },
+    )
     return {**summary, "overlay": overlay}
 
 
+# ---------------------------------------------------------------------------
+# Task 7
+# ---------------------------------------------------------------------------
 def _rmse(values: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(values))))
 
 
-def _plot_task7(path: Path, time_s: np.ndarray, position_error: np.ndarray, velocity_error: np.ndarray, max_points: int) -> None:
-    plt = _plot_import()
-    step = _stride(len(time_s), max_points)
-    t, pe, ve = time_s[::step], position_error[::step], velocity_error[::step]
-    fig, axes = plt.subplots(2, 3, figsize=(13, 6), sharex=True)
-    for index, label in enumerate(("North", "East", "Down")):
-        axes[0, index].plot(t, pe[:, index])
-        axes[0, index].set_title(label)
-        axes[0, index].set_ylabel("Position error [m]")
-        axes[1, index].plot(t, ve[:, index])
-        axes[1, index].set_ylabel("Velocity error [m/s]")
-        axes[1, index].set_xlabel("Time [s]")
-        for axis in axes[:, index]:
-            axis.axhline(0, color="black", linewidth=0.5)
-            axis.grid(True, alpha=0.3)
-    fig.suptitle("Task 7 — Fused minus truth residuals")
-    fig.tight_layout()
-    fig.savefig(path, dpi=160)
-    plt.close(fig)
-
-
-def _task7(task5: dict[str, Any], task6: dict[str, Any], cfg: PipelineConfig, directory: Path) -> dict[str, Any]:
+def _task7(
+    task5: dict[str, Any],
+    task6: dict[str, Any],
+    cfg: PipelineConfig,
+    directory: Path,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
+) -> dict[str, Any]:
+    figure_context: dict[str, Any] = {"innovations": task5.get("innovations")}
     if task6.get("status") == "complete":
         overlay = task6["overlay"]
         position_error = overlay["estimated_position"] - overlay["truth_position"]
@@ -732,35 +928,80 @@ def _task7(task5: dict[str, Any], task6: dict[str, Any], cfg: PipelineConfig, di
             "height_final_error_m": float(-position_error[-1, 2]),
             "height_final_abs_m": float(abs(position_error[-1, 2])),
         }
+        attitude_error = None
         if "truth_quaternion" in overlay:
-            dots = np.clip(np.abs(np.sum(overlay["estimated_quaternion"] * overlay["truth_quaternion"], axis=1)), 0.0, 1.0)
+            dots = np.clip(
+                np.abs(np.sum(overlay["estimated_quaternion"] * overlay["truth_quaternion"], axis=1)),
+                0.0,
+                1.0,
+            )
             attitude_error = 2.0 * np.degrees(np.arccos(dots))
-            metrics.update(attitude_rmse_deg=_rmse(attitude_error), attitude_final_deg=float(attitude_error[-1]), attitude_max_deg=float(np.max(attitude_error)))
-        artifact = _save_npz(directory / "residuals.npz", time_s=overlay["time_s"], position_error_ned_m=position_error, velocity_error_ned_mps=velocity_error)
-        if cfg.plots:
-            _plot_task7(directory / "residuals.png", overlay["time_s"], position_error, velocity_error, cfg.max_plot_points)
+            metrics.update(
+                attitude_rmse_deg=_rmse(attitude_error),
+                attitude_final_deg=float(attitude_error[-1]),
+                attitude_max_deg=float(np.max(attitude_error)),
+            )
+        artifact = _save_npz(
+            directory / "residuals.npz",
+            time_s=overlay["time_s"],
+            position_error_ned_m=position_error,
+            velocity_error_ned_mps=velocity_error,
+        )
+        figure_context.update(
+            overlay=overlay,
+            position_error=position_error,
+            velocity_error=velocity_error,
+            attitude_error_deg=attitude_error,
+        )
+        progress.subtask("7.1", f"position RMSE {metrics['position_rmse_m']:.4f} m"
+                         f" · max {metrics['position_max_m']:.4f} m")
+        progress.subtask("7.2", f"velocity RMSE {metrics['velocity_rmse_mps']:.4f} m/s"
+                         f" · max {metrics['velocity_max_mps']:.4f} m/s")
+        progress.subtask(
+            "7.3",
+            f"attitude RMSE {metrics['attitude_rmse_deg']:.4f}°"
+            if attitude_error is not None
+            else "skipped — truth file has no quaternion columns",
+        )
+        progress.subtask("7.4", f"{len(metrics)} scalar metrics exported")
         status = "complete"
     else:
-        innovations = task5["innovations"]
+        innovations = task5.get("innovations", np.empty((0, 6)))
         metrics = {
             "gnss_updates": len(innovations),
             "innovation_position_rms_m": _rmse(np.linalg.norm(innovations[:, :3], axis=1)) if len(innovations) else None,
             "innovation_velocity_rms_mps": _rmse(np.linalg.norm(innovations[:, 3:], axis=1)) if len(innovations) else None,
         }
         artifact = None
+        for number in ("7.1", "7.2", "7.3"):
+            progress.subtask(number, "skipped — no truth overlay available")
+        progress.subtask(
+            "7.4",
+            f"{metrics['gnss_updates']} GNSS updates"
+            + (
+                f" · innovation position RMS {metrics['innovation_position_rms_m']:.4f} m"
+                if metrics.get("innovation_position_rms_m") is not None
+                else ""
+            ),
+        )
+        figure_context["overlay"] = None
+        figure_context["skip_reason"] = task6.get("reason", "no truth overlay available")
         status = "complete_without_truth"
     summary = {
-        "task": 7,
-        "name": "Residual evaluation and quality metrics",
+        **_task_header(7),
         "status": status,
-        "subtasks": {"7.1": "Compute NED position residuals", "7.2": "Compute NED velocity residuals", "7.3": "Compute quaternion geodesic error", "7.4": "Export scalar comparison metrics"},
         "metrics": metrics,
         "artifact": str(artifact) if artifact else None,
     }
     _write_json(directory / "metrics.json", summary)
+    figure_context["metrics"] = metrics
+    figs.draw_task7(writer, directory, figure_context)
     return summary
 
 
+# ---------------------------------------------------------------------------
+# Orchestration
+# ---------------------------------------------------------------------------
 def _execute_tasks(
     run_dir: Path,
     expanded: list[int],
@@ -769,28 +1010,84 @@ def _execute_tasks(
     gnss: GnssData,
     truth: TruthData | None,
     cfg: PipelineConfig,
+    writer: FigureWriter,
+    progress: Progress = SILENT,
 ) -> dict[int, dict[str, Any]]:
     outputs: dict[int, dict[str, Any]] = {}
-    task1 = _task1(gnss, imu, truth, cfg, _task_dir(run_dir, 1, "inputs_reference"))
+    last = max(expanded)
+
+    progress.task_begin(1)
+    task1 = _task1(gnss, imu, truth, cfg, _task_dir(run_dir, 1), writer, progress)
+    progress.task_end(1)
     outputs[1] = task1
-    if max(expanded) >= 2:
-        task2 = _task2(imu, task1, cfg, _task_dir(run_dir, 2, "static_imu"))
+
+    if last >= 2:
+        progress.task_begin(2)
+        task2 = _task2(imu, task1, cfg, _task_dir(run_dir, 2), writer, progress)
+        progress.task_end(2)
         outputs[2] = task2
-    if max(expanded) >= 3:
-        task3 = _task3(method, task1, task2, cfg, _task_dir(run_dir, 3, "attitude"))
+    if last >= 3:
+        progress.task_begin(3)
+        task3 = _task3(method, task1, task2, cfg, _task_dir(run_dir, 3), writer, progress)
+        progress.task_end(3)
         outputs[3] = task3
-    if max(expanded) >= 4:
-        task4 = _task4(imu, gnss, task1, task3, cfg, _task_dir(run_dir, 4, "inertial"))
+    if last >= 4:
+        progress.task_begin(4)
+        task4 = _task4(imu, gnss, task1, task3, cfg, _task_dir(run_dir, 4), writer, progress)
+        progress.task_end(4)
         outputs[4] = task4
-    if max(expanded) >= 5:
-        task5 = _task5(imu, gnss, task1, task4, cfg, _task_dir(run_dir, 5, "fusion"))
+    if last >= 5:
+        progress.task_begin(5)
+        task5 = _task5(imu, gnss, task1, task4, cfg, _task_dir(run_dir, 5), writer, progress)
+        progress.task_end(5)
         outputs[5] = task5
-    if max(expanded) >= 6:
-        task6 = _task6(truth, task1, task5, cfg, _task_dir(run_dir, 6, "truth"))
+    if last >= 6:
+        progress.task_begin(6)
+        task6 = _task6(truth, task1, task5, cfg, _task_dir(run_dir, 6), writer, progress)
+        progress.task_end(6)
         outputs[6] = task6
-    if max(expanded) >= 7:
-        outputs[7] = _task7(task5, task6, cfg, _task_dir(run_dir, 7, "evaluation"))
+    if last >= 7:
+        progress.task_begin(7)
+        outputs[7] = _task7(task5, task6, cfg, _task_dir(run_dir, 7), writer, progress)
+        progress.task_end(7)
     return outputs
+
+
+def _dataset_tags(imu_path: Path, gnss_path: Path, truth_path: Path | None) -> dict[str, str | None]:
+    return {
+        "imu": Path(imu_path).stem,
+        "gnss": Path(gnss_path).stem,
+        "truth": Path(truth_path).stem if truth_path else None,
+    }
+
+
+def _dataset_details(
+    imu: ImuData, gnss: GnssData, truth: TruthData | None
+) -> dict[str, dict[str, str] | None]:
+    """Name, file and size of each input, for the progress header."""
+    from .report import relative
+
+    details: dict[str, dict[str, str] | None] = {
+        "imu": {
+            "name": imu.path.stem,
+            "path": relative(imu.path),
+            "size": f"{imu.rows} rows @ {1.0 / imu.dt_s:.1f} Hz, {imu.time_s[-1]:.2f} s",
+        },
+        "gnss": {
+            "name": gnss.path.stem,
+            "path": relative(gnss.path),
+            "size": f"{gnss.rows} epochs, {gnss.time_s[-1]:.2f} s",
+        },
+        "truth": None,
+    }
+    if truth is not None:
+        details["truth"] = {
+            "name": truth.path.stem,
+            "path": relative(truth.path),
+            "size": f"{truth.rows} states, {truth.time_s[-1]:.2f} s"
+            + (", with attitude" if truth.quaternion_wxyz is not None else ", no attitude"),
+        }
+    return details
 
 
 def run_pipeline(
@@ -803,22 +1100,36 @@ def run_pipeline(
     output_root: str | Path = "results",
     run_id: str | None = None,
     config: PipelineConfig | dict[str, Any] | None = None,
+    progress: Progress | None = None,
 ) -> dict[str, Any]:
     """Process one dataset with one method and write one folder per task."""
+    progress = progress if progress is not None else SILENT
     method = _canonical_method(method)
     cfg = config if isinstance(config, PipelineConfig) else PipelineConfig.from_mapping(config)
     cfg.validate()
     requested, expanded = parse_tasks(tasks)
-    imu = load_imu(imu_path, cfg.imu_measurement_type)
-    gnss = load_gnss(gnss_path)
-    truth = load_truth(truth_path, cfg.truth_quaternion_order) if truth_path else None
+    imu = load_imu(imu_path, cfg.imu_layout())
+    gnss = load_gnss(gnss_path, cfg.gnss_layout())
+    truth = load_truth(truth_path, cfg.truth_layout()) if truth_path else None
     run_id = run_id or f"{imu.path.stem}__{gnss.path.stem}"
     safe_run_id = _safe_name(run_id)
     run_dir = Path(output_root).expanduser().resolve() / safe_run_id / method.lower()
     run_dir.mkdir(parents=True, exist_ok=True)
+    writer = FigureWriter(
+        run_id=safe_run_id,
+        method=method,
+        dataset_tags=_dataset_tags(imu.path, gnss.path, truth.path if truth else None),
+        enabled=cfg.plots,
+        max_points=cfg.max_plot_points,
+        dpi=cfg.plot_dpi,
+        progress=progress,
+    )
+    progress.run_begin(
+        method, safe_run_id, expanded, _dataset_details(imu, gnss, truth), run_dir
+    )
     started = datetime.now(timezone.utc)
     manifest: dict[str, Any] = {
-        "schema_version": "2.0",
+        "schema_version": "3.0",
         "status": "running",
         "run_id": safe_run_id,
         "method": method,
@@ -826,13 +1137,20 @@ def run_pipeline(
         "executed_tasks": expanded,
         "auto_dependencies": sorted(set(expanded) - set(requested)),
         "started_utc": started.isoformat(),
-        "inputs": {"imu": str(imu.path), "gnss": str(gnss.path), "truth": str(truth.path) if truth else None},
+        "inputs": {
+            "imu": str(imu.path),
+            "gnss": str(gnss.path),
+            "truth": str(truth.path) if truth else None,
+        },
+        "dataset_tags": writer.dataset_tags,
         "config": asdict(cfg),
         "environment": {"python": sys.version.split()[0], "platform": platform.platform()},
     }
     _write_json(run_dir / "manifest.json", manifest)
     try:
-        outputs = _execute_tasks(run_dir, expanded, method, imu, gnss, truth, cfg)
+        outputs = _execute_tasks(
+            run_dir, expanded, method, imu, gnss, truth, cfg, writer, progress
+        )
     except Exception as exc:
         failed = datetime.now(timezone.utc)
         manifest.update(
@@ -843,36 +1161,28 @@ def run_pipeline(
         )
         _write_json(run_dir / "manifest.json", manifest)
         raise
+    index_paths = writer.write_index(run_dir)
     finished = datetime.now(timezone.utc)
     manifest.update(
         status="complete",
         finished_utc=finished.isoformat(),
         elapsed_s=(finished - started).total_seconds(),
-        task_directories={str(number): str(next(run_dir.glob(f"task_{number:02d}_*"))) for number in outputs},
+        task_directories={
+            str(number): str(run_dir / TASK_BY_NUMBER[number].directory_name) for number in outputs
+        },
+        figures={
+            "written": sum(1 for record in writer.records if record["status"] == "written"),
+            "skipped": sum(1 for record in writer.records if record["status"] == "skipped"),
+            "index_json": str(index_paths["json"]),
+            "index_csv": str(index_paths["csv"]),
+        },
+        catalog=catalog_as_dict(),
     )
     if 7 in outputs:
         manifest["metrics"] = outputs[7]["metrics"]
     _write_json(run_dir / "manifest.json", manifest)
-    return {"run_dir": run_dir, "manifest": manifest, "tasks": outputs}
-
-
-def _plot_method_comparison(path: Path, results: dict[str, dict[str, Any]], max_points: int) -> None:
-    plt = _plot_import()
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4), sharex=True)
-    for method, result in results.items():
-        task5 = result["tasks"][5]
-        step = _stride(len(task5["time_s"]), max_points)
-        for index, label in enumerate(("North", "East", "Down")):
-            axes[index].plot(task5["time_s"][::step], task5["position"][::step, index], label=method)
-            axes[index].set_title(label)
-            axes[index].set_xlabel("Time [s]")
-            axes[index].set_ylabel("Position [m]")
-            axes[index].grid(True, alpha=0.3)
-    axes[0].legend()
-    fig.suptitle("TRIAD vs Davenport vs SVD — fused position")
-    fig.tight_layout()
-    fig.savefig(path, dpi=160)
-    plt.close(fig)
+    progress.run_end(method, manifest["elapsed_s"], manifest["figures"]["written"])
+    return {"run_dir": run_dir, "manifest": manifest, "tasks": outputs, "figures": writer.records}
 
 
 def run_methods(
@@ -880,17 +1190,17 @@ def run_methods(
     gnss_path: str | Path,
     truth_path: str | Path | None = None,
     *,
-    methods: Iterable[str] = METHODS,
+    methods: str | Iterable[str] = METHODS,
     tasks: str | Iterable[int] = "1-7",
     output_root: str | Path = "results",
     run_id: str | None = None,
     config: PipelineConfig | dict[str, Any] | None = None,
+    progress: Progress | None = None,
 ) -> dict[str, Any]:
-    """Run any subset of methods and create comparison artifacts."""
+    """Run any subset of methods and create the cross-method comparison."""
+    progress = progress if progress is not None else SILENT
     cfg = config if isinstance(config, PipelineConfig) else PipelineConfig.from_mapping(config)
-    canonical_methods = [_canonical_method(method) for method in methods]
-    if len(set(canonical_methods)) != len(canonical_methods):
-        raise ValueError("methods must not contain duplicates")
+    canonical_methods = parse_methods(methods)
     imu_stem, gnss_stem = Path(imu_path).stem, Path(gnss_path).stem
     run_id = _safe_name(run_id or f"{imu_stem}__{gnss_stem}")
     results = {
@@ -903,30 +1213,60 @@ def run_methods(
             output_root=output_root,
             run_id=run_id,
             config=cfg,
+            progress=progress,
         )
         for method in canonical_methods
     }
-    comparison_dir = Path(output_root).expanduser().resolve() / run_id / "comparison"
+    comparison_dir = Path(output_root).expanduser().resolve() / run_id / COMPARISON_SLUG
     comparison_dir.mkdir(parents=True, exist_ok=True)
     metrics = {
         method: result["tasks"].get(7, {}).get("metrics", {})
         for method, result in results.items()
     }
     comparison = {
-        "schema_version": "2.0",
+        "schema_version": "3.0",
+        "run_id": run_id,
         "methods": canonical_methods,
         "metrics": metrics,
-        "note": "Task 1-2 inputs are common; Task 3 initialization differs by method; Tasks 4-7 use that method-specific attitude.",
+        "run_directories": {method: str(result["run_dir"]) for method, result in results.items()},
+        "note": (
+            "Task 1-2 inputs are common; Task 3 initialization differs by method; "
+            "Tasks 4-7 use that method-specific attitude."
+        ),
     }
     _write_json(comparison_dir / "method_comparison.json", comparison)
     keys = sorted({key for method_metrics in metrics.values() for key in method_metrics})
     with (comparison_dir / "method_comparison.csv").open("w", encoding="utf-8", newline="") as handle:
         import csv
 
-        writer = csv.writer(handle)
-        writer.writerow(["method", *keys])
+        writer_csv = csv.writer(handle)
+        writer_csv.writerow(["method", *keys])
         for method in canonical_methods:
-            writer.writerow([method, *[metrics[method].get(key, "") for key in keys]])
-    if cfg.plots and all(5 in result["tasks"] for result in results.values()):
-        _plot_method_comparison(comparison_dir / "method_comparison.png", results, cfg.max_plot_points)
-    return {"comparison_dir": comparison_dir, "comparison": comparison, "results": results}
+            writer_csv.writerow([method, *[metrics[method].get(key, "") for key in keys]])
+
+    comparison_writer = FigureWriter(
+        run_id=run_id,
+        method="+".join(canonical_methods),
+        dataset_tags=_dataset_tags(imu_path, gnss_path, truth_path),
+        enabled=cfg.plots and all(5 in result["tasks"] for result in results.values()),
+        max_points=cfg.max_plot_points,
+        dpi=cfg.plot_dpi,
+    )
+    figs.draw_comparison(
+        comparison_writer,
+        comparison_dir,
+        {"results": results, "metrics": metrics},
+    )
+    index_paths = comparison_writer.write_index(comparison_dir)
+    comparison["figures"] = {
+        "written": sum(1 for record in comparison_writer.records if record["status"] == "written"),
+        "index_json": str(index_paths["json"]),
+        "index_csv": str(index_paths["csv"]),
+    }
+    _write_json(comparison_dir / "method_comparison.json", comparison)
+    return {
+        "comparison_dir": comparison_dir,
+        "comparison": comparison,
+        "results": results,
+        "figures": comparison_writer.records,
+    }

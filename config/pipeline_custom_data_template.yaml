@@ -1,0 +1,125 @@
+# ============================================================================
+# TEMPLATE: running the pipeline on YOUR OWN data files
+# ============================================================================
+# Copy this file, point `input` at your logs, and change only the layout keys
+# that differ from your files. You do NOT need to rewrite or re-export your
+# data — every column index, delimiter and unit is configurable here.
+#
+#   python PYTHON/run_pipeline.py --config config/my_data.yaml --validate-only
+#   python PYTHON/run_pipeline.py --config config/my_data.yaml
+#
+# Run --validate-only first: it reports the parsed row counts, sample rate,
+# duration and resolved GNSS column names without processing anything.
+#
+# ALL COLUMN INDICES ARE ZERO-BASED. Column 0 is the first column in the file.
+# ============================================================================
+
+input:
+  imu: path/to/your_imu.dat
+  gnss: path/to/your_gnss.csv
+  truth: path/to/your_truth.txt      # delete this line if you have no reference
+
+run:
+  method: ALL                        # TRIAD | Davenport | SVD | TRIAD,SVD | ALL
+  tasks: 1-7
+  output: results
+  run_id: my_dataset
+
+pipeline:
+  # ------------------------------------------------------------------
+  # IMU file
+  # ------------------------------------------------------------------
+  # Default expects: col 0 counter, col 1 time, cols 2-4 gyro, cols 5-7 accel.
+  imu_time_column: 1
+  imu_gyro_columns: [2, 3, 4]
+  imu_accel_columns: [5, 6, 7]
+
+  # "delta" = each row holds the increment accumulated since the previous row
+  #           (delta-angle and delta-velocity). The reader divides by dt.
+  # "rate"  = each row already holds rad/s and m/s^2.
+  imu_measurement_type: delta
+
+  imu_time_unit: s                   # s | ms | us | ns
+  imu_gyro_unit: rad                 # rad | deg
+  imu_accel_unit: mps2               # mps2 | g | mg
+  imu_delimiter: null                # null = any whitespace; or "," / ";" / "\t"
+
+  # ------------------------------------------------------------------
+  # GNSS file
+  # ------------------------------------------------------------------
+  # Columns are found by header name. These names are recognised out of the box:
+  #   time  -> Posix_Time, POSIX_Time, time, Time, timestamp
+  #   x/y/z -> X_ECEF_m, X_ECEF, ecef_x_m, x  (and the y/z equivalents)
+  #   v*    -> VX_ECEF_mps, VX_ECEF, ecef_vx_mps, vx (and vy/vz)
+  # If your headers differ, map them explicitly here:
+  gnss_column_overrides: {}
+  #   gnss_column_overrides:
+  #     time: gps_seconds
+  #     x: pos_x_ecef
+  #     y: pos_y_ecef
+  #     z: pos_z_ecef
+  #     vx: vel_x_ecef
+  #     vy: vel_y_ecef
+  #     vz: vel_z_ecef
+
+  gnss_delimiter: ","                # single character
+  gnss_time_unit: s                  # s | ms | us | ns
+  gnss_position_unit: m              # m | km | cm  (must resolve to true ECEF metres)
+  gnss_velocity_unit: mps            # mps | kmph | kn
+
+  # ------------------------------------------------------------------
+  # Truth / reference trajectory (optional)
+  # ------------------------------------------------------------------
+  truth_time_column: 1
+  truth_position_columns: [2, 3, 4]
+  truth_velocity_columns: [5, 6, 7]
+
+  # Set to null if your reference has no attitude; Task 6/7 then compare
+  # position and velocity only.
+  truth_quaternion_columns: [8, 9, 10, 11]
+  truth_quaternion_order: xyzw       # xyzw | wxyz  (order in YOUR file)
+  truth_quaternion_frame: body_to_ecef   # body_to_ecef | body_to_ned
+
+  # Attitude-only time shift. The bundled 10 Hz truth stamps each interval at
+  # its start while the attitude represents the midpoint, hence -0.05 s.
+  # Leave at 0.0 unless you know your reference has the same quirk.
+  truth_attitude_time_offset_s: 0.0
+
+  truth_time_unit: s
+  truth_position_unit: m
+  truth_velocity_unit: mps
+  truth_delimiter: null
+
+  # ------------------------------------------------------------------
+  # Algorithm
+  # ------------------------------------------------------------------
+  # Number of samples in the static-alignment window. Should cover a genuinely
+  # stationary stretch: roughly 1-10 s worth of samples at your rate.
+  static_samples: 400
+
+  # Relative trust in the two Wahba observations. Gravity dominates because the
+  # Earth-rate vector is five orders of magnitude smaller than gravity.
+  gravity_weight: 0.9999
+  earth_rate_weight: 0.0001
+
+  # Leave null to use latitude/altitude-dependent WGS-84 normal gravity.
+  gravity_override_mps2: null
+  earth_rate_rps: 7.292115e-5
+
+  # Filter tuning: raise process noise or lower measurement noise to trust the
+  # GNSS more; do the opposite to trust the inertial solution more.
+  process_accel_std_mps2: 20.0
+  gnss_position_std_m: 2.0
+  gnss_velocity_std_mps: 0.5
+
+  # Samples whose vector norm exceeds these limits are treated as dropouts and
+  # linearly interpolated. Task 4 records how many were replaced.
+  max_specific_force_mps2: 100.0
+  max_angular_rate_rps: 20.0
+
+  # ------------------------------------------------------------------
+  # Output
+  # ------------------------------------------------------------------
+  max_plot_points: 50000             # per-trace decimation cap
+  plot_dpi: 160
+  plots: true

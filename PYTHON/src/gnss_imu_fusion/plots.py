@@ -41,7 +41,7 @@ def save_zupt_variance(
     plt.ylabel("Variance")
     plt.tight_layout()
     plt.title("Task 2 — ZUPT Detection and Accelerometer Variance")
-    base = Path(base_dir) / f"IMU_{dataset_id}_task2_zupt_variance"
+    base = Path(base_dir) / f"IMU_{dataset_id}_task2_2_zupt_variance"
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, var=var, zupt=zupt_mask.astype(int)))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -76,7 +76,7 @@ def save_euler_angles(
     plt.legend(loc="best")
     plt.tight_layout()
     plt.title("Task 3 — Attitude Angles (Roll/Pitch/Yaw) vs. Time")
-    base = Path(base_dir) / f"{dataset_id}_{method}_task3_attitude_angles_over_time"
+    base = Path(base_dir) / f"{dataset_id}_{method}_task3_7_3_attitude_angles_over_time"
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, euler=euler_angles))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -120,7 +120,7 @@ def save_residual_plots(
     plt.title("Task 5 — Position Residuals vs. Time")
     plt.legend(loc="best")
     plt.tight_layout()
-    base = Path(plot_path(base_dir, tag, 5, "residuals", "position_residuals")).with_suffix("")
+    base = Path(plot_path(base_dir, tag, 5, "9_1", "position_residuals")).with_suffix("")
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, resid=residual_pos))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -133,7 +133,7 @@ def save_residual_plots(
     plt.title("Task 5 — Velocity Residuals vs. Time")
     plt.legend(loc="best")
     plt.tight_layout()
-    base = Path(plot_path(base_dir, tag, 5, "residuals", "velocity_residuals")).with_suffix("")
+    base = Path(plot_path(base_dir, tag, 5, "9_2", "velocity_residuals")).with_suffix("")
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, resid=residual_vel))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -168,7 +168,7 @@ def save_attitude_over_time(
     plt.legend(loc="best")
     plt.tight_layout()
     plt.title("Task 6 — Attitude Angles (Roll/Pitch/Yaw) Over Time")
-    base = Path(base_dir) / f"{dataset_id}_{method}_task6_attitude_angles_over_time"
+    base = Path(base_dir) / f"{dataset_id}_{method}_task6_2_attitude_angles_over_time"
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, euler=euler_angles))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -186,7 +186,7 @@ def save_velocity_profile(t: np.ndarray, vel_filter: np.ndarray, vel_gnss: np.nd
     plt.title("Task 5 — Velocity Profile")
     plt.legend(loc="best")
     plt.tight_layout()
-    save_matlab_fig(plt.gcf(), str(Path(base_dir) / "task5_velocity_profile"))
+    save_matlab_fig(plt.gcf(), str(Path(base_dir) / "task5_9_4_velocity_profile"))
     plt.close()
 
 

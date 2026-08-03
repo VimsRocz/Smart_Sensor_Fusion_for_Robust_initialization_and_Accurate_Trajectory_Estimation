@@ -42,7 +42,7 @@ Residual position and velocity are compared with the GNSS data. When a truth tra
 Run the evaluation helper after Task 5 to generate residual and attitude plots:
 
 ```bash
-python PYTHON/src/run_all_methods.py --task 7
+.venv/bin/python PYTHON/src/run_all_methods.py --task 7
 ```
 
 The script searches `PYTHON/results/` for `*_kf_output.npz` files and prints mean

@@ -1,26 +1,24 @@
-# Quick smoke configuration: bundled 1,000-sample X001 extract.
-# Override any value on the command line, e.g. --method TRIAD --tasks 1-5.
+# Full X001 dataset: ~500,000 IMU samples at 400 Hz with reference trajectory.
+# This is the configuration behind the headline accuracy numbers in the README.
 
 input:
-  imu: DATA/IMU/IMU_X001_small.dat
-  gnss: DATA/GNSS/GNSS_X001_small.csv
-  truth: DATA/Truth/STATE_X001_small.txt
+  imu: DATA/IMU/IMU_X001.dat
+  gnss: DATA/GNSS/GNSS_X001.csv
+  truth: DATA/Truth/STATE_X001.txt
 
 run:
   method: ALL          # TRIAD | Davenport | SVD | a comma-separated subset | ALL
   tasks: 1-7
   output: results
-  run_id: X001_small
+  run_id: X001_full
 
 pipeline:
-  # --- input layout (defaults match the bundled DATA/ files) ---
   imu_measurement_type: delta
   truth_quaternion_order: xyzw
   truth_quaternion_frame: body_to_ecef
   truth_attitude_time_offset_s: -0.05
 
-  # --- algorithm ---
-  static_samples: 200
+  static_samples: 400
   gravity_weight: 0.9999
   earth_rate_weight: 0.0001
   process_accel_std_mps2: 20.0
@@ -29,7 +27,6 @@ pipeline:
   max_specific_force_mps2: 100.0
   max_angular_rate_rps: 20.0
 
-  # --- output ---
   max_plot_points: 50000
   plot_dpi: 160
   plots: true

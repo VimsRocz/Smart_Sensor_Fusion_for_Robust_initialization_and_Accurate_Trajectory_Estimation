@@ -1,4 +1,4 @@
-function result = task5(imu, gnss, task1, task4, cfg, outDir)
+function [result, figCtx] = task5(imu, gnss, task1, task4, cfg, outDir, figCtx)
 %TASK5 Fuse IMU prediction with asynchronous GNSS measurements.
 
 C=task1.c_ecef_to_ned; origin=task1.origin_ecef_m;
@@ -25,13 +25,91 @@ result=struct('task',5,'name','GNSS/IMU Kalman fusion','subtasks',{{'5.1 Predict
     'time_s',time_s,'position',position,'velocity',velocity,'acceleration',task4.acceleration, ...
     'quaternion',task4.quaternion,'innovations',innovations,'innovation_times',updateTimes);
 summary=rmfield(result,{'time_s','position','velocity','acceleration','quaternion','innovations','innovation_times'}); fusion.write_json(fullfile(outDir,'summary.json'),summary);
-if cfg.plots; state_plot(fullfile(outDir,'fused_solution.png'),time_s,position,velocity,cfg); end
+if cfg.plots
+    stride=max(1,ceil(numel(time_s)/cfg.max_plot_points)); idx=1:stride:numel(time_s);
+    figCtx=fusion.figures('save',figCtx,5,'prediction_vs_gnss',outDir, ...
+        prediction_plot(time_s,position,velocity,gnss.time_s,gnssPosition,gnssVelocity,idx));
+    figCtx=fusion.figures('save',figCtx,5,'kalman_innovations',outDir, ...
+        innovation_plot(updateTimes,innovations));
+    figCtx=fusion.figures('save',figCtx,5,'fused_position_velocity',outDir, ...
+        state_plot(time_s,position,velocity,idx));
+    figCtx=fusion.figures('save',figCtx,5,'fused_ground_track',outDir, ...
+        ground_track_plot(position,gnssPosition,idx));
+    figCtx=fusion.figures('save',figCtx,5,'fused_vs_imu_only',outDir, ...
+        comparison_plot(time_s,position,velocity,task4.position,task4.velocity,idx));
+end
 end
 
-function state_plot(path,time,position,velocity,cfg)
-stride=max(1,ceil(numel(time)/cfg.max_plot_points)); idx=1:stride:numel(time); labels={'North','East','Down'};
-f=figure('Visible','off'); tiledlayout(2,3);
-for j=1:3; nexttile(j); plot(time(idx),position(idx,j)); title(labels{j}); ylabel('Position [m]'); grid on;
-    nexttile(j+3); plot(time(idx),velocity(idx,j)); ylabel('Velocity [m/s]'); xlabel('Time [s]'); grid on; end
-sgtitle('Task 5 - GNSS/IMU fused solution'); exportgraphics(f,path,'Resolution',160); close(f);
+function f=new_figure(width,height)
+% Sized explicitly: the stamped two-line sgtitle and the footer annotation need
+% more room than the default figure gives a 2x3 grid.
+f=figure('Visible','off','Position',[100 100 width height]);
+end
+
+function f=prediction_plot(time,position,velocity,gnssTime,gnssPosition,gnssVelocity,idx)
+labels={'North','East','Down'}; crimson=[0.8627 0.0784 0.2353];
+f=new_figure(1300,760); tl=tiledlayout(f,2,3);
+for j=1:3
+    ax=nexttile(tl,j); plot(ax,time(idx),position(idx,j),'LineWidth',0.9); hold(ax,'on');
+    scatter(ax,gnssTime,gnssPosition(:,j),9,crimson,'filled');
+    title(ax,labels{j}); ylabel(ax,'Position [m]'); grid(ax,'on');
+    if j==1; legend(ax,{'filter state','GNSS'},'FontSize',8); end
+    ax=nexttile(tl,j+3); plot(ax,time(idx),velocity(idx,j),'LineWidth',0.9); hold(ax,'on');
+    scatter(ax,gnssTime,gnssVelocity(:,j),9,crimson,'filled');
+    ylabel(ax,'Velocity [m/s]'); xlabel(ax,'Time [s]'); grid(ax,'on');
+end
+end
+
+function f=innovation_plot(updateTimes,innovations)
+labels={'North','East','Down'}; orange=[1 0.4980 0.0549];
+f=new_figure(1300,760); tl=tiledlayout(f,2,3);
+if isempty(innovations)
+    for k=1:6
+        ax=nexttile(tl,k); xlim(ax,[0 1]); ylim(ax,[0 1]);
+        text(ax,0.5,0.5,'no GNSS updates','HorizontalAlignment','center','VerticalAlignment','middle');
+    end
+    return
+end
+for j=1:3
+    ax=nexttile(tl,j); plot(ax,updateTimes,innovations(:,j),'-o','MarkerSize',2.5,'LineWidth',0.7);
+    yline(ax,0,'k-','LineWidth',0.6);
+    title(ax,labels{j}); ylabel(ax,'Position innovation [m]'); grid(ax,'on');
+    ax=nexttile(tl,j+3); plot(ax,updateTimes,innovations(:,j+3),'-o','MarkerSize',2.5,'LineWidth',0.7,'Color',orange);
+    yline(ax,0,'k-','LineWidth',0.6);
+    ylabel(ax,'Velocity innovation [m/s]'); xlabel(ax,'Time [s]'); grid(ax,'on');
+end
+end
+
+function f=state_plot(time,position,velocity,idx)
+labels={'North','East','Down'};
+f=new_figure(1300,760); tl=tiledlayout(f,2,3);
+for j=1:3
+    ax=nexttile(tl,j); plot(ax,time(idx),position(idx,j),'LineWidth',0.9);
+    title(ax,labels{j}); ylabel(ax,'Position [m]'); grid(ax,'on');
+    ax=nexttile(tl,j+3); plot(ax,time(idx),velocity(idx,j),'LineWidth',0.9);
+    ylabel(ax,'Velocity [m/s]'); xlabel(ax,'Time [s]'); grid(ax,'on');
+end
+end
+
+function f=ground_track_plot(position,gnssPosition,idx)
+crimson=[0.8627 0.0784 0.2353];
+f=new_figure(800,700); tl=tiledlayout(f,1,1); ax=nexttile(tl,1);
+plot(ax,position(idx,2),position(idx,1),'LineWidth',1.0); hold(ax,'on');
+scatter(ax,gnssPosition(:,2),gnssPosition(:,1),14,crimson,'filled');
+axis(ax,'equal'); xlabel(ax,'East [m]'); ylabel(ax,'North [m]'); grid(ax,'on');
+legend(ax,{'fused','GNSS fixes'},'FontSize',8);
+end
+
+function f=comparison_plot(time,position,velocity,imuPosition,imuVelocity,idx)
+labels={'North','East','Down'};
+f=new_figure(1300,760); tl=tiledlayout(f,2,3);
+for j=1:3
+    ax=nexttile(tl,j); plot(ax,time(idx),position(idx,j),'LineWidth',0.9); hold(ax,'on');
+    plot(ax,time(idx),imuPosition(idx,j),'--','LineWidth',0.8);
+    title(ax,labels{j}); ylabel(ax,'Position [m]'); grid(ax,'on');
+    if j==1; legend(ax,{'Fused','IMU-only'},'FontSize',8); end
+    ax=nexttile(tl,j+3); plot(ax,time(idx),velocity(idx,j),'LineWidth',0.9); hold(ax,'on');
+    plot(ax,time(idx),imuVelocity(idx,j),'--','LineWidth',0.8);
+    ylabel(ax,'Velocity [m/s]'); xlabel(ax,'Time [s]'); grid(ax,'on');
+end
 end

@@ -38,7 +38,7 @@ The repository received feedback requesting:
 
 **Usage**:
 ```bash
-python run_vibration_detection.py
+.venv/bin/python run_vibration_detection.py
 ```
 
 ### 4. Results Documentation ✓
@@ -112,13 +112,13 @@ To verify the implementation:
 
 ```bash
 # 1. Run the main entry point
-python run_vibration_detection.py
+.venv/bin/python run_vibration_detection.py
 
 # 2. Check that results were generated
 ls -lh vibration_results/
 
 # 3. Run the test suite
-python test_vibration_python.py
+.venv/bin/python test_vibration_python.py
 ```
 
 Expected output:

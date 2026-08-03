@@ -74,14 +74,14 @@ def task1_reference_vectors(gnss_data: pd.DataFrame, output_dir: str | Path, run
 
     lat_deg, lon_deg = ensure_deg_latlon(lat_raw, lon_raw)
 
-    png_path = output_dir / f"{run_id}_task1_location_map.png"
+    png_path = output_dir / f"{run_id}_task1_2_location_map.png"
     if PLOTLY_AVAILABLE:
         fig = go.Figure()
         fig.add_scattergeo(
             lon=[lon_deg], lat=[lat_deg], mode="markers", marker=dict(size=10, color="red")
         )
         fig.update_layout(
-            title="Task 1 — Initial GNSS location",
+            title="Task 1.2 — Initial GNSS location",
             geo=dict(
                 projection_type="equirectangular",
                 showcountries=True,
@@ -106,8 +106,8 @@ def task1_reference_vectors(gnss_data: pd.DataFrame, output_dir: str | Path, run
             ax.scatter([lon_deg], [lat_deg], color="red")
             ax.set_xlabel("Lon [deg]")
             ax.set_ylabel("Lat [deg]")
-            ax.set_title("Task 1 — Initial GNSS location (fallback)")
-            save_plot(fig2, output_dir, run_id, "task1", "location_map")
+            ax.set_title("Task 1.2 — Initial GNSS location (fallback)")
+            save_plot(fig2, output_dir, run_id, "task1_2", "location_map")
             plt.close(fig2)
     else:
         # No plotly available — directly use matplotlib fallback
@@ -119,8 +119,8 @@ def task1_reference_vectors(gnss_data: pd.DataFrame, output_dir: str | Path, run
         ax.scatter([lon_deg], [lat_deg], color="red")
         ax.set_xlabel("Lon [deg]")
         ax.set_ylabel("Lat [deg]")
-        ax.set_title("Task 1 — Initial GNSS location (fallback)")
-        save_plot(fig2, output_dir, run_id, "task1", "location_map")
+        ax.set_title("Task 1.2 — Initial GNSS location (fallback)")
+        save_plot(fig2, output_dir, run_id, "task1_2", "location_map")
         plt.close(fig2)
 
     info = {

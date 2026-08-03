@@ -35,3 +35,6 @@ results/
 build/
 dist/
 *.egg-info/
+
+# Claude Code session files
+.claude/

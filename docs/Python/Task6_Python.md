@@ -37,7 +37,7 @@ Overlay PDFs are stored directly in ``results/`` as ``<dataset>_<method>_task6_o
 Invoke the Task 6 helper once Task 5 has produced a filter output file:
 
 ```bash
-python PYTHON/src/task6_plot_truth.py --est-file PYTHON/results/IMU_X001_GNSS_X001_TRIAD_kf_output.mat \
+.venv/bin/python PYTHON/src/task6_plot_truth.py --est-file PYTHON/results/IMU_X001_GNSS_X001_TRIAD_kf_output.mat \
     --output PYTHON/results
 ```
 

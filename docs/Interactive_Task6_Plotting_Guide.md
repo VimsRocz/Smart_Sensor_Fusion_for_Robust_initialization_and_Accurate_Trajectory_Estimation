@@ -68,21 +68,21 @@ plot_overlay_interactive(
 
 ```bash
 # Basic interactive plotting
-python PYTHON/src/task6_plot_truth.py \
+.venv/bin/python PYTHON/src/task6_plot_truth.py \
     --est-file results/IMU_X002_GNSS_X002_TRIAD_kf_output.mat \
     --truth-file DATA/Truth/STATE_X001.txt \
     --interactive \
     --show-measurements
 
 # Create dashboard with all plots
-python PYTHON/src/task6_plot_truth.py \
+.venv/bin/python PYTHON/src/task6_plot_truth.py \
     --est-file results/IMU_X002_GNSS_X002_TRIAD_kf_output.mat \
     --truth-file DATA/Truth/STATE_X001.txt \
     --interactive \
     --create-dashboard
 
 # Use static plots only
-python PYTHON/src/task6_plot_truth.py \
+.venv/bin/python PYTHON/src/task6_plot_truth.py \
     --est-file results/IMU_X002_GNSS_X002_TRIAD_kf_output.mat \
     --truth-file DATA/Truth/STATE_X001.txt \
     --static-only
@@ -243,13 +243,13 @@ pdf_path = task6_overlay_plot(est_file, truth_file, method, frame, dataset, outp
 ### Python Issues
 
 **Problem**: `ImportError: Plotly not available`  
-**Solution**: Install plotly and kaleido: `pip install plotly kaleido`
+**Solution**: Install plotly and kaleido: `python3 -m pip install plotly kaleido`
 
 **Problem**: Large HTML files (>50MB)  
 **Solution**: Use data subsampling or reduce max_points parameter
 
 **Problem**: Static export fails  
-**Solution**: Install kaleido: `pip install kaleido`
+**Solution**: Install kaleido: `python3 -m pip install kaleido`
 
 
 **Problem**: Interactive features not working  

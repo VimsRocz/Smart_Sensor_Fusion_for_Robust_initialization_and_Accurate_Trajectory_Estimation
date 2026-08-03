@@ -60,17 +60,30 @@ def _mpl_axes_to_matlab(ax, eng):
 
 
 def save_matlab_fig(fig, out_stem: str) -> Path | None:
-    """Mirror a Matplotlib figure into MATLAB and save as native .fig.
+    """Save a Matplotlib figure as PNG and PDF, plus a native MATLAB .fig.
 
-    Returns the Path to the saved .fig on success, or None if the MATLAB
-    engine is not available.
+    The PNG/PDF export is pure Matplotlib and always runs. Only the native
+    ``.fig`` mirror needs the MATLAB engine; without it the figures are still
+    written, which is what every caller expects.
+
+    Returns the Path to the saved ``.fig``, or None when MATLAB is absent.
     """
+    stem = Path(out_stem)
+    stem.parent.mkdir(parents=True, exist_ok=True)
+
+    for suffix, dpi in ((".png", 200), (".pdf", 300)):
+        target = stem.with_suffix(suffix)
+        try:
+            fig.savefig(target, dpi=dpi, bbox_inches="tight")
+            print(f"[{suffix[1:].upper()}] {target}")
+        except Exception as exc:  # pragma: no cover - backend dependent
+            print(f"[WARN] could not write {target}: {exc}")
+
     eng = _matlab_engine()
     if not eng:
         return None
 
-    out = Path(out_stem).with_suffix('.fig')
-    out.parent.mkdir(parents=True, exist_ok=True)
+    out = stem.with_suffix('.fig')
 
     # Extract axes from the source figure
     axes = [ax for ax in fig.get_axes() if ax.get_visible()]
@@ -87,16 +100,6 @@ def save_matlab_fig(fig, out_stem: str) -> Path | None:
 
     eng.savefig(str(out), nargout=0)  # native .fig
     print(f"[FIG] {out}")
-    # Also save PNG/PDF snapshots from Matplotlib for convenience
-    try:
-        png = Path(out_stem).with_suffix('.png')
-        fig.savefig(png, dpi=200, bbox_inches='tight')
-        print(f"[PNG] {png}")
-        pdf = Path(out_stem).with_suffix('.pdf')
-        fig.savefig(pdf, dpi=300, bbox_inches='tight')
-        print(f"[PDF] {pdf}")
-    except Exception:
-        pass
     return out
 
 

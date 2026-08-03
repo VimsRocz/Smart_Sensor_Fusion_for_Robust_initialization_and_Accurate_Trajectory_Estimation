@@ -123,13 +123,13 @@ To verify the fixes are working, run the provided test scripts:
 
 ```bash
 # Test quaternion amplitude matching
-python test_amplitude_matching.py
+.venv/bin/python test_amplitude_matching.py
 
 # Test key fixes from problem statement  
-python test_key_fixes.py
+.venv/bin/python test_key_fixes.py
 
 # Comprehensive consistency test
-python test_final_comprehensive.py
+.venv/bin/python test_final_comprehensive.py
 ```
 
 All tests should show:

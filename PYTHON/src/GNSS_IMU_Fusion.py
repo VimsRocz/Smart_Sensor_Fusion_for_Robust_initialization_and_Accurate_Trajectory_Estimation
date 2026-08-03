@@ -171,7 +171,7 @@ def task3_plot_quaternions_and_errors(
     ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
     fig.tight_layout()
 
-    base = RESULTS_DIR / f"{RUN_ID}_task3_quaternions"
+    base = RESULTS_DIR / f"{RUN_ID}_task3_7_2_quaternions"
     try:
         arrays = {k: np.asarray(v) for k, v in quaternions_dict.items()}
     except Exception:
@@ -202,7 +202,7 @@ def task3_plot_quaternions_and_errors(
 
     if not grav_vals or not earth_vals or (np.allclose(grav_vals, 0) and np.allclose(earth_vals, 0)):
         raise ValueError("Task3 arrays all zero or empty")
-    base = RESULTS_DIR / f"{RUN_ID}_task3_errors"
+    base = RESULTS_DIR / f"{RUN_ID}_task3_7_1_errors"
     arrays = {
         "methods": np.array(methods, dtype=object),
         "grav_err_deg": np.array(grav_vals, float),
@@ -1528,7 +1528,7 @@ def main():
     )
     fig_comp.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_comp, RESULTS_DIR, tag, "task4", "comparison_ned", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_comp, RESULTS_DIR, tag, "task4_13_1", "comparison_ned", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_comp)
     logging.info("Comparison plot in NED frame saved")
 
@@ -1566,7 +1566,7 @@ def main():
     )
     fig_mixed.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_mixed, RESULTS_DIR, tag, "task4", "mixed_frames", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_mixed, RESULTS_DIR, tag, "task4_13_2", "mixed_frames", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_mixed)
     logging.info("Mixed frames plot saved")
 
@@ -1637,7 +1637,7 @@ def main():
     )
     fig_ned.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ned, RESULTS_DIR, tag, "task4", "all_ned", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ned, RESULTS_DIR, tag, "task4_13_3", "all_ned", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_ned)
     logging.info("All data in NED frame plot saved")
 
@@ -1697,7 +1697,7 @@ def main():
     fig_ecef.suptitle(f"Task 4 – {method} – ECEF Frame (Derived IMU vs. GNSS)")
     fig_ecef.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ecef, RESULTS_DIR, tag, "task4", "all_ecef", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ecef, RESULTS_DIR, tag, "task4_13_4", "all_ecef", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_ecef)
     logging.info("All data in ECEF frame plot saved")
 
@@ -1772,7 +1772,7 @@ def main():
     )
     fig_body.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_body, RESULTS_DIR, tag, "task4", "all_body", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_body, RESULTS_DIR, tag, "task4_13_5", "all_body", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_body)
     logging.info("All data in body frame plot saved")
     if not args.no_plots:
@@ -2546,37 +2546,47 @@ def main():
 
     plt.tight_layout()
     if not args.no_plots:
-        save_plot(fig, RESULTS_DIR, tag, "task5", f"results_{method}", ext="png", dpi=200)
+        save_plot(fig, RESULTS_DIR, tag, "task5_8_2", f"results_{method}", ext="png", dpi=200)
     logging.info(f"Subtask 5.8.2: {method} plot saved")
     logging.debug(f"# Subtask 5.8.2: {method} plotting completed.")
     plt.close(fig)
 
-    # Plot fused data in mixed reference frames
+    # Plot fused data in mixed reference frames.
+    # One row per reference frame so all three are represented:
+    #   row 0 position in NED, row 1 velocity in ECEF, row 2 acceleration in body.
     logging.info("Plotting fused data in mixed frames.")
     fig_mixed_fused, ax_mixed_fused = plt.subplots(3, 3, figsize=(15, 10))
-    dirs_pos = ["X_ECEF", "Y_ECEF", "Z_ECEF"]
+    dirs_pos = ["N_NED", "E_NED", "D_NED"]
     dirs_vel = ["VX_ECEF", "VY_ECEF", "VZ_ECEF"]
     dirs_acc = ["AX_body", "AY_body", "AZ_body"]
     c = colors.get(method, None)
-    pos_ecef = np.array([C_NED_to_ECEF @ p + ref_r0 for p in fused_pos[method]])
     vel_ecef = (C_NED_to_ECEF @ fused_vel[method].T).T
     C_N_B = C_B_N_methods[method].T
     acc_body = (C_N_B @ fused_acc[method].T).T
+    # The GNSS-derived acceleration is the measured counterpart of the fused
+    # acceleration; without it the bottom row had a single trace while the rows
+    # above compared three.
+    gnss_acc_body = (C_N_B @ gnss_acc_ned.T).T
+    truth_acc_body = None
+    if truth_vel_ned_i is not None:
+        truth_acc_ned = np.gradient(truth_vel_ned_i, t_rel_ilu, axis=0)
+        truth_acc_body = (C_N_B @ truth_acc_ned.T).T
     for i in range(3):
         for j in range(3):
             ax = ax_mixed_fused[i, j]
             if i == 0:
-                ax.plot(t_rel_gnss, gnss_pos_ecef[:, j], "k-", label="Measured GNSS")
+                ax.plot(t_rel_gnss, gnss_pos_ned[:, j], "k-", label="Measured GNSS")
                 ax.plot(
                     t_rel_ilu,
-                    pos_ecef[:, j],
+                    fused_pos[method][:, j],
                     c,
                     alpha=0.7,
                     label=f"Fused (GNSS+IMU, {method})",
                 )
-                if truth_pos_ecef_i is not None:
-                    ax.plot(t_rel_ilu, truth_pos_ecef_i[:, j], "m-", label="Truth")
+                if truth_pos_ned_i is not None:
+                    ax.plot(t_rel_ilu, truth_pos_ned_i[:, j], "m-", label="Truth")
                 ax.set_title(f"Position {dirs_pos[j]}")
+                ax.set_ylabel("Position [m]")
             elif i == 1:
                 ax.plot(t_rel_gnss, gnss_vel_ecef[:, j], "k-", label="Measured GNSS")
                 ax.plot(
@@ -2589,7 +2599,9 @@ def main():
                 if truth_vel_ecef_i is not None:
                     ax.plot(t_rel_ilu, truth_vel_ecef_i[:, j], "m-", label="Truth")
                 ax.set_title(f"Velocity {dirs_vel[j]}")
+                ax.set_ylabel("Velocity [m/s]")
             else:
+                ax.plot(t_rel_gnss, gnss_acc_body[:, j], "k-", label="GNSS (Derived)")
                 ax.plot(
                     t_rel_ilu,
                     acc_body[:, j],
@@ -2597,16 +2609,26 @@ def main():
                     alpha=0.7,
                     label=f"Fused (GNSS+IMU, {method})",
                 )
+                if truth_acc_body is not None:
+                    ax.plot(t_rel_ilu, truth_acc_body[:, j], "m-", label="Truth")
                 ax.set_title(f"Acceleration {dirs_acc[j]}")
+                ax.set_ylabel("Acceleration [m/s²]")
+                # The IMU power-up transient reaches ~600 m/s^2 and would
+                # otherwise flatten the whole trace against the axis.
+                _finite = acc_body[np.isfinite(acc_body[:, j]), j]
+                if _finite.size:
+                    _lim = np.percentile(np.abs(_finite), 99.5)
+                    if _lim > 0:
+                        ax.set_ylim(-1.5 * _lim, 1.5 * _lim)
             ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Value")
             ax.legend(loc="best")
     fig_mixed_fused.suptitle(
-        f"Task 5 – {method} – Mixed Frames (Fused vs. Measured GNSS)"
+        f"Task 5.8.3 – {method} – Mixed Frames "
+        f"(Position NED, Velocity ECEF, Acceleration Body)"
     )
     fig_mixed_fused.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_mixed_fused, RESULTS_DIR, tag, "task5", "mixed_frames", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_mixed_fused, RESULTS_DIR, tag, "task5_8_3", "mixed_frames", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_mixed_fused)
     logging.info("Fused mixed frames plot saved")
 
@@ -2633,11 +2655,11 @@ def main():
     fig_ned_all.suptitle(f"Task 5 – {method} – NED Frame (Fused)")
     fig_ned_all.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ned_all, RESULTS_DIR, tag, "task5", "all_ned", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ned_all, RESULTS_DIR, tag, "task5_8_4", "all_ned", ext="png", dpi=200, bbox_inches="tight")
         # Save a MATLAB bundle for Task 5 NED fused data
         try:
             from scipy.io import savemat  # type: ignore
-            savemat(str(RESULTS_DIR / f"{tag}_task5_all_ned.mat"), {
+            savemat(str(RESULTS_DIR / f"{tag}_task5_8_4_all_ned.mat"), {
                 'time_s': np.asarray(imu_time, float),
                 'pos_ned_m': np.asarray(fused_pos[method], float),
                 'vel_ned_ms': np.asarray(fused_vel[method], float),
@@ -2681,11 +2703,11 @@ def main():
     fig_ecef_all.suptitle(f"Task 5 – {method} – ECEF Frame (Fused)")
     fig_ecef_all.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ecef_all, RESULTS_DIR, tag, "task5", "all_ecef", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ecef_all, RESULTS_DIR, tag, "task5_8_5", "all_ecef", ext="png", dpi=200, bbox_inches="tight")
         # Save a MATLAB bundle for Task 5 ECEF fused data
         try:
             from scipy.io import savemat  # type: ignore
-            savemat(str(RESULTS_DIR / f"{tag}_task5_all_ecef.mat"), {
+            savemat(str(RESULTS_DIR / f"{tag}_task5_8_5_all_ecef.mat"), {
                 'time_s': np.asarray(imu_time, float),
                 'pos_ecef_m': np.asarray(pos_ecef, float),
                 'vel_ecef_ms': np.asarray(vel_ecef, float),
@@ -2722,11 +2744,11 @@ def main():
     fig_body_all.suptitle(f"Task 5 – {method} – Body Frame (Fused)")
     fig_body_all.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_body_all, RESULTS_DIR, tag, "task5", "all_body", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_body_all, RESULTS_DIR, tag, "task5_8_6", "all_body", ext="png", dpi=200, bbox_inches="tight")
         # Save a MATLAB bundle for Task 5 Body fused data
         try:
             from scipy.io import savemat  # type: ignore
-            savemat(str(RESULTS_DIR / f"{tag}_task5_all_body.mat"), {
+            savemat(str(RESULTS_DIR / f"{tag}_task5_8_6_all_body.mat"), {
                 'time_s': np.asarray(imu_time, float),
                 'pos_body_m': np.asarray(pos_body, float),
                 'vel_body_ms': np.asarray(vel_body, float),
@@ -2754,7 +2776,7 @@ def main():
     fig_innov.suptitle("Task 5 – Pre-fit Innovations (Fused vs. Measured GNSS)")
     fig_innov.tight_layout()
     if not args.no_plots:
-        save_plot(fig_innov, RESULTS_DIR, tag, "task5", f"{method.lower()}_innovations")
+        save_plot(fig_innov, RESULTS_DIR, tag, "task5_8_7", f"{method.lower()}_innovations")
     plt.close(fig_innov)
 
     # Plot residuals and attitude using helper functions
@@ -2774,16 +2796,16 @@ def main():
         f"{run_id}_task1_location_map.png": "Task 1 location map",
         f"{tag}_task3_errors_comparison.png": "Attitude initialization error comparison",
         f"{tag}_task3_quaternions_comparison.png": "Quaternion components for initialization",
-        f"{tag}_task4_comparison_ned.png": "Derived GNSS vs Derived IMU data in NED frame",
-        f"{tag}_task4_mixed_frames.png": "GNSS/IMU data in mixed frames",
-        f"{tag}_task4_all_ned.png": "Integrated data in NED frame",
-        f"{tag}_task4_all_ecef.png": "Integrated data in ECEF frame",
-        f"{tag}_task4_all_body.png": "Integrated data in body frame",
-        f"{tag}_task5_results_{method}.png": f"Kalman filter results using {method}",
-        f"{tag}_task5_mixed_frames.png": "Kalman filter results in mixed frames",
-        f"{tag}_task5_all_ned.png": "Kalman filter results in NED frame",
-        f"{tag}_task5_all_ecef.png": "Kalman filter results in ECEF frame",
-        f"{tag}_task5_all_body.png": "Kalman filter results in body frame",
+        f"{tag}_task4_13_1_comparison_ned.png": "Derived GNSS vs Derived IMU data in NED frame",
+        f"{tag}_task4_13_2_mixed_frames.png": "GNSS/IMU data in mixed frames",
+        f"{tag}_task4_13_3_all_ned.png": "Integrated data in NED frame",
+        f"{tag}_task4_13_4_all_ecef.png": "Integrated data in ECEF frame",
+        f"{tag}_task4_13_5_all_body.png": "Integrated data in body frame",
+        f"{tag}_task5_8_2_results_{method}.png": f"Kalman filter results using {method}",
+        f"{tag}_task5_8_3_mixed_frames.png": "Kalman filter results in mixed frames",
+        f"{tag}_task5_8_4_all_ned.png": "Kalman filter results in NED frame",
+        f"{tag}_task5_8_5_all_ecef.png": "Kalman filter results in ECEF frame",
+        f"{tag}_task5_8_6_all_body.png": "Kalman filter results in body frame",
         f"{tag}_{method.lower()}_residuals.png": "Position and velocity residuals",
         f"{tag}_{method.lower()}_innovations.png": "Pre-fit innovations",
         f"{tag}_{method.lower()}_attitude_angles.png": "Attitude angles over time",
@@ -2831,8 +2853,8 @@ def main():
         plt.xlabel("Time (s)")
         plt.ylabel("Angle (deg)")
         plt.legend(loc="best")
-        plt.title(f"Task 6: {tag} Attitude Angles")
-        png = RESULTS_DIR / f"{tag}_task6_attitude_angles.png"
+        plt.title(f"Task 6.1: {tag} Attitude Angles")
+        png = RESULTS_DIR / f"{tag}_task6_1_attitude_angles.png"
         from utils.matlab_fig_export import save_matlab_fig
         fig = plt.gcf()
         save_matlab_fig(fig, str(Path(png).with_suffix('')))
@@ -3088,7 +3110,7 @@ def main():
             fused_vel[method],
             truth_pos_ned,
             truth_vel_ned,
-            RESULTS_DIR / f"{tag}_task6_truth_vs_fused.png",
+            RESULTS_DIR / f"{tag}_task6_3_truth_vs_fused.png",
         )
 
     # Compact overview figure with subplots (always saved)

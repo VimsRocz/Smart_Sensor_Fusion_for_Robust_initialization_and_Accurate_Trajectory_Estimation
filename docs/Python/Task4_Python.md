@@ -44,7 +44,7 @@ Task 4 follows the attitude computation automatically.  Run the fusion script
 for a dataset:
 
 ```bash
-python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
+.venv/bin/python PYTHON/src/GNSS_IMU_Fusion.py --imu-file IMU_X001.dat --gnss-file GNSS_X001.csv
 ```
 
 The pipeline integrates the corrected specific force and prints summary

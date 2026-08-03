@@ -76,7 +76,7 @@ def save_task2_summary_png(
     fig.suptitle("Task 2 – Body-frame vector summary")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
 
-    base = out_dir / f"{run_id}_task2_static_interval"
+    base = out_dir / f"{run_id}_task2_2_static_interval"
     save_png_and_mat(
         fig,
         str(base),
@@ -168,7 +168,7 @@ def task2_measure_body_vectors(
         )
 
     fig.tight_layout()
-    base = out_dir / f"{run_id}_task2_vectors"
+    base = out_dir / f"{run_id}_task2_3_vectors"
     save_png_and_mat(
         fig,
         str(base),

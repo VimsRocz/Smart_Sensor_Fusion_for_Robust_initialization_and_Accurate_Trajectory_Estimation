@@ -1,0 +1,45 @@
+# X003: IMU_X003 (X002 noise + a constant IMU bias) paired with GNSS_X002.
+#
+# X003 has no GNSS file of its own, so it reuses GNSS_X002 by design — see
+# DATA/README.md. There is no reference trajectory for this run, so Tasks 1-5
+# complete normally, Task 6 records status "skipped", and Task 7 reports GNSS
+# innovation statistics instead of truth residuals.
+#
+#   make run-x003                  # TRIAD, the default single method
+#   make run-x003 METHOD=SVD       # any one method
+#   make run-x003 METHOD=ALL       # all three plus the comparison
+#
+# Equivalent without a config file:
+#   .venv/bin/python PYTHON/run_pipeline.py --dataset x003 --method TRIAD
+
+input:
+  imu: DATA/IMU/IMU_X003.dat
+  gnss: DATA/GNSS/GNSS_X002.csv
+  # truth: deliberately absent — no reference trajectory exists for X003
+
+run:
+  method: TRIAD        # one method by default; override with --method
+  tasks: 1-7
+  output: results
+  run_id: X003_full_no_truth
+
+pipeline:
+  imu_measurement_type: delta
+
+  static_samples: 400
+  gravity_weight: 0.9999
+  earth_rate_weight: 0.0001
+  process_accel_std_mps2: 20.0
+
+  # Measured from GNSS_X002: position noise is ~2.0 m per axis and velocity
+  # noise ~0.10 m/s per axis, so the velocity figure is tightened from the
+  # 0.5 default to match the data this run actually uses.
+  gnss_position_std_m: 2.0
+  gnss_velocity_std_mps: 0.1
+
+  max_specific_force_mps2: 100.0
+  max_angular_rate_rps: 20.0
+
+  max_plot_points: 50000
+  plot_dpi: 160
+  plots: true

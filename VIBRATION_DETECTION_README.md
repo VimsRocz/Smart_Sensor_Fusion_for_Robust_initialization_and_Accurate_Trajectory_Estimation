@@ -190,7 +190,7 @@ run_vibration_tests  % Comprehensive test suite with validation
 
 ### Python Tests  
 ```python
-python test_vibration_python.py  # Python validation and benchmarking
+.venv/bin/python test_vibration_python.py  # Python validation and benchmarking
 ```
 
 ## Algorithm Details

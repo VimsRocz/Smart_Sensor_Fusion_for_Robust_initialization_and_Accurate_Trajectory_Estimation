@@ -40,7 +40,7 @@ Vibration is a common issue in IMU-based systems, especially in mobile platforms
 Install the required dependencies:
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 Required packages:
@@ -53,7 +53,7 @@ Required packages:
 The project provides a single entry point to run the complete vibration detection and compensation pipeline:
 
 ```bash
-python run_vibration_detection.py
+.venv/bin/python run_vibration_detection.py
 ```
 
 This script will:
@@ -69,7 +69,7 @@ This script will:
 To verify the implementation, run the test suite:
 
 ```bash
-python test_vibration_python.py
+.venv/bin/python test_vibration_python.py
 ```
 
 ## Usage Examples

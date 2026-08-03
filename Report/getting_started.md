@@ -39,9 +39,9 @@ This downloads any new files from GitHub.
 
 From the same terminal run one of the helper scripts:
 ```bash
-python src/run_triad_only.py        # quick demo
+.venv/bin/python src/run_triad_only.py        # quick demo
 # or
-python src/run_all_datasets.py      # full pipeline
+.venv/bin/python src/run_all_datasets.py      # full pipeline
 ```
 The results and validation plots appear inside the newly created `results/run_triad_only/` or `results/run_all_datasets/` folder depending on the script. MATLAB writes to the same `results/` directory.
 

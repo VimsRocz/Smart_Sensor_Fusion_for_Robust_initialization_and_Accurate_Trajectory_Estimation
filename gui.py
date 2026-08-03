@@ -14,7 +14,16 @@ from tkinter import filedialog, messagebox, ttk
 
 REPO_ROOT = Path(__file__).resolve().parent
 RUNNER = REPO_ROOT / "PYTHON" / "run_pipeline.py"
-METHODS = ("TRIAD", "Davenport", "SVD", "ALL")
+# Any comma-separated subset is also accepted, so the box stays editable.
+METHODS = (
+    "TRIAD",
+    "Davenport",
+    "SVD",
+    "TRIAD,Davenport",
+    "TRIAD,SVD",
+    "Davenport,SVD",
+    "ALL",
+)
 
 
 class FusionGUI(tk.Tk):
@@ -50,7 +59,7 @@ class FusionGUI(tk.Tk):
         self._file_row(controls, 3, "Output folder", "output", None)
 
         ttk.Label(controls, text="Method").grid(row=4, column=0, sticky="w", pady=4)
-        ttk.Combobox(controls, textvariable=self.variables["method"], values=METHODS, state="readonly", width=18).grid(row=4, column=1, sticky="w", pady=4)
+        ttk.Combobox(controls, textvariable=self.variables["method"], values=METHODS, width=18).grid(row=4, column=1, sticky="w", pady=4)
         ttk.Label(controls, text="Tasks").grid(row=4, column=1, sticky="e", padx=(0, 230))
         ttk.Entry(controls, textvariable=self.variables["tasks"], width=16).grid(row=4, column=1, sticky="e", padx=(0, 70))
         ttk.Label(controls, text="Examples: 3, 1-5, 1-7").grid(row=4, column=2, sticky="w")

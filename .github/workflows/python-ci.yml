@@ -30,10 +30,18 @@ jobs:
         run: python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --validate-only
 
       - name: Lint canonical Python code
-        run: ruff check PYTHON/fusion_pipeline PYTHON/tests/pipeline PYTHON/run_pipeline.py gui.py
+        run: ruff check PYTHON/fusion_pipeline PYTHON/tests/pipeline PYTHON/run_pipeline.py gui.py scripts/generate_task_docs.py
+
+      - name: Check the generated task documentation is current
+        run: |
+          python scripts/generate_task_docs.py
+          git diff --exit-code -- docs/TASKS_AND_SUBTASKS.md
 
       - name: Run tests
         run: pytest -q
 
       - name: Smoke test all methods
         run: python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --no-plots
+
+      - name: Smoke test a single method with figures
+        run: python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --method TRIAD --run-id ci_figures

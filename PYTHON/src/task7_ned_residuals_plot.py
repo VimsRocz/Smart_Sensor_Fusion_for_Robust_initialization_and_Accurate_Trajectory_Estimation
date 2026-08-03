@@ -32,9 +32,16 @@ def load_est_ned(
         t = data.get("time")
     if t is None:
         raise KeyError("Missing time vector in estimator file")
+    # GNSS_IMU_Fusion.py writes the unsuffixed names; accept both spellings.
     pos_ned = data.get("pos_ned_m")
+    if pos_ned is None:
+        pos_ned = data.get("pos_ned")
     vel_ned = data.get("vel_ned_ms")
+    if vel_ned is None:
+        vel_ned = data.get("vel_ned")
     acc_ned = data.get("acc_ned_ms2")
+    if acc_ned is None:
+        acc_ned = data.get("fused_acc")
 
     lat = data.get("ref_lat_rad")
     if lat is None:
@@ -49,8 +56,10 @@ def load_est_ned(
     if lat is None or lon is None or r0 is None:
         raise KeyError("Estimator file missing reference location")
 
-    lat = float(np.asarray(lat))
-    lon = float(np.asarray(lon))
+    # ref_lat/ref_lon are stored as 1-element arrays; NumPy 2 refuses float()
+    # on those, so flatten before converting.
+    lat = float(np.asarray(lat).reshape(-1)[0])
+    lon = float(np.asarray(lon).reshape(-1)[0])
     r0 = np.asarray(r0).reshape(3)
 
     if pos_ned is None or vel_ned is None:
@@ -140,16 +149,16 @@ def plot_residuals(
                 ax.set_xlabel("Time [s]")
             ax.grid(True)
 
-    fig.suptitle(f"{dataset} Task 7 NED Residuals")
+    fig.suptitle(f"{dataset} Task 7.3 — NED Residuals")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     out_dir.mkdir(parents=True, exist_ok=True)
-    pdf = out_dir / f"{dataset}_task7_ned_residuals.pdf"
-    png = out_dir / f"{dataset}_task7_ned_residuals.png"
+    pdf = out_dir / f"{dataset}_task7_3_ned_residuals.pdf"
+    png = out_dir / f"{dataset}_task7_3_ned_residuals.png"
     from utils.matlab_fig_export import save_matlab_fig
     save_matlab_fig(fig, str(Path(pdf).with_suffix("")))
     try:
         from utils import save_plot_mat
-        save_plot_mat(fig, str(out_dir / f"{dataset}_task7_ned_residuals.mat"))
+        save_plot_mat(fig, str(out_dir / f"{dataset}_task7_3_ned_residuals.mat"))
     except Exception:
         pass
     plt.close(fig)
@@ -162,20 +171,20 @@ def plot_residuals(
     ax.set_ylabel("Residual Norm")
     ax.legend()
     ax.grid(True)
-    fig.suptitle(f"{dataset} Task 7 NED Residual Norms")
+    fig.suptitle(f"{dataset} Task 7.4 — NED Residual Norms")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
-    norm_pdf = out_dir / f"{dataset}_task7_ned_residual_norms.pdf"
-    norm_png = out_dir / f"{dataset}_task7_ned_residual_norms.png"
+    norm_pdf = out_dir / f"{dataset}_task7_4_ned_residual_norms.pdf"
+    norm_png = out_dir / f"{dataset}_task7_4_ned_residual_norms.png"
     from utils.matlab_fig_export import save_matlab_fig
     save_matlab_fig(fig, str(Path(norm_pdf).with_suffix("")))
     try:
         from utils import save_plot_mat
-        save_plot_mat(fig, str(out_dir / f"{dataset}_task7_ned_residual_norms.mat"))
+        save_plot_mat(fig, str(out_dir / f"{dataset}_task7_4_ned_residual_norms.mat"))
     except Exception:
         pass
     plt.close(fig)
 
-    saved = sorted(out_dir.glob(f"{dataset}_task7_ned_residual*.pdf"))
+    saved = sorted(out_dir.glob(f"{dataset}_task7_*_ned_residual*.pdf"))
     if saved:
         print("Files saved in", out_dir)
         for f in saved:
@@ -211,7 +220,7 @@ def main() -> None:
 
     out_dir = args.output_dir
     plot_residuals(t_rel, res_pos, res_vel, res_acc, args.dataset, out_dir)
-    saved = sorted(out_dir.glob(f"{args.dataset}_task7_ned_residual*.pdf"))
+    saved = sorted(out_dir.glob(f"{args.dataset}_task7_*_ned_residual*.pdf"))
     if saved:
         print("Files saved in", out_dir)
         for f in saved:
