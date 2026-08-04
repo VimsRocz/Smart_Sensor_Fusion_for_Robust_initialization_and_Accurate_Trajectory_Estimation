@@ -17,6 +17,7 @@ def save_zupt_variance(
     threshold: float,
     window_size: int = 100,
     base_dir: str | Path = "results",
+    method: str = "",
 ) -> None:
     """Plot ZUPT-detected intervals and accelerometer variance."""
     t = np.arange(accel.shape[0]) * dt
@@ -41,7 +42,7 @@ def save_zupt_variance(
     plt.ylabel("Variance")
     plt.tight_layout()
     plt.title("Task 2 — ZUPT Detection and Accelerometer Variance")
-    base = Path(base_dir) / f"IMU_{dataset_id}_task2_2_zupt_variance"
+    base = Path(base_dir) / ((f"{method}_" if method else "") + f"IMU_{dataset_id}_task2_2_zupt_variance")
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, var=var, zupt=zupt_mask.astype(int)))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -120,7 +121,7 @@ def save_residual_plots(
     plt.title("Task 5 — Position Residuals vs. Time")
     plt.legend(loc="best")
     plt.tight_layout()
-    base = Path(plot_path(base_dir, tag, 5, "9_1", "position_residuals")).with_suffix("")
+    base = Path(plot_path(base_dir, tag, 5, "9_1", "position_residuals_NED")).with_suffix("")
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, resid=residual_pos))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -133,7 +134,7 @@ def save_residual_plots(
     plt.title("Task 5 — Velocity Residuals vs. Time")
     plt.legend(loc="best")
     plt.tight_layout()
-    base = Path(plot_path(base_dir, tag, 5, "9_2", "velocity_residuals")).with_suffix("")
+    base = Path(plot_path(base_dir, tag, 5, "9_2", "velocity_residuals_NED")).with_suffix("")
     save_png_and_mat(plt.gcf(), str(base), arrays=dict(t=t, resid=residual_vel))
     save_matlab_fig(plt.gcf(), str(base))
     plt.close()
@@ -174,7 +175,7 @@ def save_attitude_over_time(
     plt.close()
 
 
-def save_velocity_profile(t: np.ndarray, vel_filter: np.ndarray, vel_gnss: np.ndarray, base_dir: str | Path = "results") -> None:
+def save_velocity_profile(t: np.ndarray, vel_filter: np.ndarray, vel_gnss: np.ndarray, base_dir: str | Path = "results", tag: str = "") -> None:
     """Plot filter and GNSS velocity over time."""
     labels = ["North", "East", "Down"]
     plt.figure(figsize=(10, 5))
@@ -186,7 +187,7 @@ def save_velocity_profile(t: np.ndarray, vel_filter: np.ndarray, vel_gnss: np.nd
     plt.title("Task 5 — Velocity Profile")
     plt.legend(loc="best")
     plt.tight_layout()
-    save_matlab_fig(plt.gcf(), str(Path(base_dir) / "task5_9_4_velocity_profile"))
+    save_matlab_fig(plt.gcf(), str(Path(base_dir) / ((f"{tag}_" if tag else "") + "task5_9_4_velocity_profile_NED")))
     plt.close()
 
 

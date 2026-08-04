@@ -11,7 +11,7 @@ DATA_DIR   = ROOT / "DATA"
 IMU_DIR    = DATA_DIR / "IMU"
 GNSS_DIR   = DATA_DIR / "GNSS"
 TRUTH_DIR  = DATA_DIR / "Truth"
-PY_RES_DIR = ROOT / "PYTHON" / "results"     # Python outputs
+PY_RES_DIR = ROOT / "results"                # single results dir for the project
 
 def repo_root() -> Path:
     """Return the repository root directory."""

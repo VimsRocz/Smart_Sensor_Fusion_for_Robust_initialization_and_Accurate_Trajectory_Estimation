@@ -57,7 +57,8 @@ for f in "$IMU" "$GNSS" ${TRUTH:+"$TRUTH"}; do
   [ -f "$f" ] || { echo "Missing input file: $f" >&2; exit 2; }
 done
 
-TAG="$(basename "$IMU" .dat)_$(basename "$GNSS" .csv)_${METHOD}"
+# METHOD first, then IMU, then GNSS.
+TAG="${METHOD}_$(basename "$IMU" .dat)_$(basename "$GNSS" .csv)"
 
 echo "=================================================================="
 echo " Dataset : $DATASET      Method : $METHOD"
@@ -86,16 +87,9 @@ fi
   ${MIXFLAG} \
   --method    "$METHOD"
 
-# Task 7 residuals need a reference trajectory; only x001 has one.
-if [ -n "$TRUTH" ]; then
-  "$PY" PYTHON/src/task7_ned_residuals_plot.py \
-    --est-file  "results/${TAG}_kf_output.npz" \
-    --truth-file "$TRUTH" \
-    --dataset   "$TAG" \
-    --output-dir results
-else
-  echo "[Task 7] skipped: dataset $DATASET has no reference trajectory."
-fi
+# task7_ned_residuals_plot produced task7_3/7_4 figures that duplicate the
+# Task 7.5 difference plots, so it is no longer invoked. Run it by hand if the
+# residual-norm view is ever wanted again.
 
 echo
 echo "Done. Plots for ${TAG}:"

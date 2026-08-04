@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 
 _ENG = None  # lazy-initialised MATLAB engine
 
+#: Every figure stem written this run, so task_summary() can report accurately
+#: regardless of which helper produced the figure.
+WRITTEN: list[str] = []
+
 
 def _matlab_engine():
     global _ENG
@@ -76,6 +80,8 @@ def save_matlab_fig(fig, out_stem: str) -> Path | None:
         try:
             fig.savefig(target, dpi=dpi, bbox_inches="tight")
             print(f"[{suffix[1:].upper()}] {target}")
+            if suffix == ".png":
+                WRITTEN.append(target.name)
         except Exception as exc:  # pragma: no cover - backend dependent
             print(f"[WARN] could not write {target}: {exc}")
 

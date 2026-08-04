@@ -71,11 +71,21 @@ def save_plot(fig, results_dir: str | Path, run_id: str, task_label: str, plot_l
 
 def task_summary(task_label: str) -> None:
     """Print a summary of saved plots for *task_label*."""
-    files = _saved.get(task_label, [])
     n = task_label.replace("task", "")
+    # Figures reach disk through several helpers, so consult the shared
+    # registry as well; otherwise this reported "No plots saved" while the
+    # files were sitting in results/.
+    import re
+
+    from utils.matlab_fig_export import WRITTEN
+
+    pattern = re.compile(rf"_task{re.escape(n)}(?:_\d+)*_", re.IGNORECASE)
+    files = list(dict.fromkeys(
+        list(_saved.get(task_label, [])) + [f for f in WRITTEN if pattern.search(f)]
+    ))
     if not files:
         print(f"[TASK {n}] No plots saved.")
         return
-    print(f"[TASK {n}] Plots saved to results/:")
-    for name in files:
+    print(f"[TASK {n}] Plots saved ({len(files)}):")
+    for name in sorted(files):
         print(f"  {name}")

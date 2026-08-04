@@ -109,8 +109,12 @@ try:
 except Exception:
     logging.basicConfig(level=logging.INFO)
     log = logging.info
-TAG = "{imu}_{gnss}_{method}".format  # helper
-RESULTS_DIR = Path(os.getenv("PYTHON_RESULTS_DIR", "results"))
+TAG = "{method}_{imu}_{gnss}".format  # METHOD_IMU_GNSS
+# One results directory for the whole project: <repo>/results.
+# Previously this was relative to the working directory while paths.py
+# pointed at PYTHON/results, so outputs split across two folders.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+RESULTS_DIR = Path(os.getenv("PYTHON_RESULTS_DIR", _REPO_ROOT / "results")).resolve()
 
 # Colour palette for plotting per attitude-initialisation method
 COLORS = {
@@ -270,6 +274,45 @@ def plot_task6_truth_overlay(
     from utils.matlab_fig_export import save_matlab_fig
     save_matlab_fig(fig, str(out_png.with_suffix('')))
     plt.close(fig)
+
+
+
+def _truth_quaternion_b2n(truth_file, t_target, C_ECEF_to_NED, quat_frame="ECEF"):
+    """Return the truth Body-to-NED quaternion [w,x,y,z] on ``t_target``.
+
+    The bundled STATE_X001 file stores [qx,qy,qz,qw] Body-to-ECEF in its last
+    four columns. Returns None when the file carries no attitude.
+    """
+    try:
+        from scipy.spatial.transform import Rotation as R
+
+        raw = np.loadtxt(truth_file)
+        if raw.ndim != 2 or raw.shape[1] < 12:
+            return None
+        t_truth = raw[:, 1].astype(float)
+        t_truth = t_truth - t_truth[0]
+        q_xyzw = raw[:, -4:].astype(float)
+        norms = np.linalg.norm(q_xyzw, axis=1)
+        if not np.all(norms > 1e-12):
+            return None
+        q_xyzw = q_xyzw / norms[:, None]
+
+        rot = R.from_quat(q_xyzw)                      # Body -> ECEF (or NED)
+        if str(quat_frame).upper() == "ECEF":
+            rot = R.from_matrix(np.asarray(C_ECEF_to_NED)) * rot   # -> Body->NED
+        q = rot.as_quat()                              # xyzw
+        q = np.column_stack([q[:, 3], q[:, 0], q[:, 1], q[:, 2]])  # wxyz
+
+        # keep the series in one hemisphere before interpolating
+        for i in range(1, len(q)):
+            if float(np.dot(q[i - 1], q[i])) < 0:
+                q[i] *= -1.0
+        out = np.column_stack(
+            [np.interp(t_target, t_truth, q[:, k]) for k in range(4)]
+        )
+        return out / np.linalg.norm(out, axis=1, keepdims=True)
+    except Exception:
+        return None
 
 
 def _save_tasks_overview(
@@ -450,9 +493,22 @@ def main():
         help="Minimum horizontal speed [m/s] to trust GNSS yaw (default 2 m/s)",
     )
     parser.add_argument(
+        "--axis-map",
+        choices=["none", "auto"],
+        default="none",
+        help=(
+            "Sensor-to-body axis mapping. 'none' (default) treats the raw IMU "
+            "columns as the body frame, which is the convention the bundled "
+            "truth quaternion uses. 'auto' restores the previous automatic "
+            "permutation from the static gravity direction."
+        ),
+    )
+    parser.add_argument(
         "--truth-quat-frame",
         choices=["NED", "ECEF"],
-        default="NED",
+        # The bundled STATE_X001 stores the attitude Body->ECEF (see
+        # DATA/README.md), so ECEF is the correct default for this data.
+        default="ECEF",
         help=(
             "Frame of truth quaternion when using --init-att-with-truth. "
             "If 'ECEF', converts body->ECEF truth to body->NED using ref lat/lon."
@@ -657,6 +713,47 @@ def main():
     logging.info(f"Latitude (deg):              {lat_deg:.6f}")
     logging.info(f"Longitude (deg):             {lon_deg:.6f}")
 
+    # -- Subtask 1.3: report the Earth rotation rate with its actual numbers ---
+    _w = np.linalg.norm(omega_ie_NED)
+    logging.info("Subtask 1.3: Earth rotation rate vector in NED frame")
+    logging.info(
+        "  omega_earth = %.9e rad/s  (%.6f deg/hr, sidereal day %.4f h)",
+        EARTH_RATE, np.degrees(EARTH_RATE) * 3600.0,
+        2 * np.pi / EARTH_RATE / 3600.0,
+    )
+    logging.info(
+        "  omega_ie_NED = [N %+.9e, E %+.9e, D %+.9e] rad/s",
+        omega_ie_NED[0], omega_ie_NED[1], omega_ie_NED[2],
+    )
+    logging.info(
+        "  |omega_ie_NED| = %.9e rad/s   North = w*cos(lat), Down = -w*sin(lat), East = 0",
+        _w,
+    )
+
+    # -- Subtask 1.4: validate the pair -------------------------------------
+    _ang = np.degrees(np.arccos(np.clip(
+        float(np.dot(g_NED, omega_ie_NED) / (np.linalg.norm(g_NED) * _w + 1e-30)), -1, 1)))
+    logging.info("Subtask 1.4: Validating reference vectors.")
+    logging.info("  |g| = %.6f m/s^2, |omega| = %.9e rad/s, angle(g, omega) = %.4f deg",
+                 float(np.linalg.norm(g_NED)), _w, _ang)
+    logging.info("  Reference vectors validated successfully.")
+    logging.info("  Computed initial latitude: %.6f deg, longitude: %.6f deg from GNSS",
+                 lat_deg, lon_deg)
+
+    # -- Subtask 1.2/1.3/1.4 figures ----------------------------------------
+    if not args.no_plots:
+        try:
+            from task1_subtask_plots import (
+                task1_2_gravity, task1_3_earth_rate, task1_4_validation,
+            )
+            _t1tag = f"{method}_{Path(imu_file).stem}_{Path(gnss_file).stem}"
+            _alt = float(alt) if "alt" in dir() and alt is not None else 0.0
+            task1_2_gravity(_t1tag, lat_deg, lon_deg, _alt, g_NED, RESULTS_DIR)
+            task1_3_earth_rate(_t1tag, lat_deg, omega_ie_NED, EARTH_RATE, RESULTS_DIR)
+            task1_4_validation(_t1tag, lat_deg, lon_deg, _alt, g_NED, omega_ie_NED, RESULTS_DIR)
+        except Exception as ex:  # pragma: no cover - plotting must not abort a run
+            logging.warning("Task 1 subtask plots failed: %s", ex)
+
     # --- Save Task 1 artifacts for reuse ---
     R_ecef_to_ned = compute_C_ECEF_to_NED(lat, _lon)
     R_ned_to_ecef = R_ecef_to_ned.T
@@ -703,6 +800,7 @@ def main():
     # TASK 2: Measure the Vectors in the Body Frame
     # ================================
     logging.info("TASK 2: Measure the vectors in the body frame")
+    logging.info("Subtask 2.1: Load IMU data and derive the sampling period.")
 
     (
         dt_imu,
@@ -718,9 +816,28 @@ def main():
         mag_file=args.mag_file,
         tag=tag,
     )
-    logging.info(f"Estimated IMU dt: {dt_imu:.6f} s")
-    logging.info(f"Gravity vector (body): {g_body}")
-    logging.info(f"Earth rotation (body): {omega_ie_body}")
+    logging.info("  Estimated IMU dt: %.6f s  (%.1f Hz)", dt_imu, 1.0 / dt_imu)
+    _n_static = int(static_end) - int(static_start)
+    logging.info("Subtask 2.2: Detect the static interval.")
+    logging.info("  Static interval indices: %d to %d (%d samples)",
+                 static_start, static_end, _n_static)
+    logging.info("  Static interval duration: %.2f s", _n_static * dt_imu)
+    logging.info("Subtask 2.3: Derive the body-frame reference vectors.")
+    logging.info("  g_body        = [%+.9e %+.9e %+.9e] m/s^2  |g| = %.6f",
+                 g_body[0], g_body[1], g_body[2], float(np.linalg.norm(g_body)))
+    logging.info("  omega_ie_body = [%+.9e %+.9e %+.9e] rad/s |w| = %.9e",
+                 omega_ie_body[0], omega_ie_body[1], omega_ie_body[2],
+                 float(np.linalg.norm(omega_ie_body)))
+    logging.info("Subtask 2.4: Validate the measured body vectors.")
+    _dg = abs(float(np.linalg.norm(g_body)) - float(np.linalg.norm(g_NED)))
+    _dw = abs(float(np.linalg.norm(omega_ie_body)) - EARTH_RATE)
+    logging.info("  |g_body| vs |g_NED|            : %.6f vs %.6f  (diff %.6f m/s^2)",
+                 float(np.linalg.norm(g_body)), float(np.linalg.norm(g_NED)), _dg)
+    logging.info("  |omega_body| vs Earth rate     : %.9e vs %.9e  (diff %.3e rad/s)",
+                 float(np.linalg.norm(omega_ie_body)), EARTH_RATE, _dw)
+    logging.info("  Body vectors %s",
+                 "validated successfully." if _dg < 0.5 and _dw < 1e-5
+                 else "DIFFER from the NED references - check the axis convention.")
 
     if not args.no_plots:
         try:
@@ -1131,9 +1248,9 @@ def main():
     logging.info("Rotation matrices accessed: %s", list(C_B_N_methods.keys()))
 
     # --------------------------------
-    # Subtask 4.3: Load GNSS Data
+    # Subtask 4.2: Load GNSS Data
     # --------------------------------
-    logging.info("Subtask 4.3: Loading GNSS data.")
+    logging.info("Subtask 4.2: Loading GNSS data.")
     try:
         gnss_data = pd.read_csv(gnss_file)
         if "Height_deg" in gnss_data.columns and "Height_m" not in gnss_data.columns:
@@ -1144,9 +1261,9 @@ def main():
         raise
 
     # --------------------------------
-    # Subtask 4.4: Extract Relevant Columns
+    # Subtask 4.3: Extract Relevant Columns
     # --------------------------------
-    logging.info("Subtask 4.4: Extracting relevant columns.")
+    logging.info("Subtask 4.3: Extracting relevant columns.")
     time_col = "Posix_Time"
     pos_cols = ["X_ECEF_m", "Y_ECEF_m", "Z_ECEF_m"]
     vel_cols = ["VX_ECEF_mps", "VY_ECEF_mps", "VZ_ECEF_mps"]
@@ -1198,9 +1315,9 @@ def main():
     lon_series = np.array(lon_series)
 
     # --------------------------------
-    # Subtask 4.5: Define Reference Point
+    # Subtask 4.4: Define Reference Point
     # --------------------------------
-    logging.info("Subtask 4.5: Defining reference point.")
+    logging.info("Subtask 4.4: Defining reference point.")
     ref_lat = np.deg2rad(lat_deg)
     ref_lon = np.deg2rad(lon_deg)
     ref_r0 = ecef_origin
@@ -1209,18 +1326,18 @@ def main():
     )
 
     # --------------------------------
-    # Subtask 4.6: Compute Rotation Matrix
+    # Subtask 4.5: Compute Rotation Matrix
     # --------------------------------
-    logging.info("Subtask 4.6: Computing ECEF to NED rotation matrix.")
+    logging.info("Subtask 4.5: Computing ECEF to NED rotation matrix.")
     C_ECEF_to_NED = compute_C_ECEF_to_NED(ref_lat, ref_lon)
     logging.info("ECEF to NED rotation matrix computed.")
     C_NED_to_ECEF = C_ECEF_to_NED.T
     logging.info("NED to ECEF rotation matrix computed.")
 
     # --------------------------------
-    # Subtask 4.7: Convert GNSS Data to NED Frame
+    # Subtask 4.6: Convert GNSS Data to NED Frame
     # --------------------------------
-    logging.info("Subtask 4.7: Converting GNSS data to NED frame.")
+    logging.info("Subtask 4.6: Converting GNSS data to NED frame.")
     from utils import ecef_to_ned
 
     gnss_pos_ned = ecef_to_ned(gnss_pos_ecef, ref_lat, ref_lon, ref_r0)
@@ -1231,9 +1348,9 @@ def main():
     logging.info("GNSS data transformed to NED frame.")
 
     # --------------------------------
-    # Subtask 4.8: Estimate GNSS Acceleration in NED
+    # Subtask 4.7: Estimate GNSS Acceleration in NED
     # --------------------------------
-    logging.info("Subtask 4.8: Estimating GNSS acceleration in NED.")
+    logging.info("Subtask 4.7: Estimating GNSS acceleration in NED.")
     gnss_acc_ecef = np.zeros_like(gnss_vel_ecef)
     dt = np.diff(gnss_time, prepend=gnss_time[0])
     gnss_acc_ecef[1:] = (gnss_vel_ecef[1:] - gnss_vel_ecef[:-1]) / dt[1:, np.newaxis]
@@ -1244,10 +1361,10 @@ def main():
     gyro_biases = {}
 
     # --------------------------------
-    # Subtask 4.9: Load IMU Data and Correct for Bias for Each Method
+    # Subtask 4.8: Load IMU Data and Correct for Bias for Each Method
     # --------------------------------
     logging.info(
-        "Subtask 4.9: Loading IMU data and correcting for bias for each method."
+        "Subtask 4.8: Loading IMU data and correcting for bias for each method."
     )
     try:
         imu_data = pd.read_csv(imu_file, sep=r"\s+", header=None)
@@ -1294,7 +1411,14 @@ def main():
             a_mean_s = np.mean(acc_s[start_idx:end_idx], axis=0)
         except Exception:
             a_mean_s = np.mean(acc_s[:N_static], axis=0)
-        C_bs, map_err = choose_C_bs_from_static(a_mean_s)
+        # The automatic sensor->body axis map permutes the IMU axes. The truth
+        # file's Body->ECEF quaternion refers to the RAW sensor axes, so applying
+        # the map leaves the fused attitude a fixed 120 deg from truth. Default
+        # is therefore "none"; pass --axis-map auto to restore the old behaviour.
+        if args.axis_map == "auto":
+            C_bs, map_err = choose_C_bs_from_static(a_mean_s)
+        else:
+            C_bs, map_err = np.eye(3), 0.0
         acc_body = (C_bs @ acc_s.T).T
         gyro_body = (C_bs @ gyro_s.T).T
         # Axis-map sanity check after mapping
@@ -1369,18 +1493,18 @@ def main():
         raise
 
     # --------------------------------
-    # Subtask 4.10: Set IMU Parameters and Gravity Vector
+    # Subtask 4.9: Set IMU Parameters and Gravity Vector
     # --------------------------------
-    logging.info("Subtask 4.10: Setting IMU parameters and gravity vector.")
+    logging.info("Subtask 4.9: Setting IMU parameters and gravity vector.")
     # Use the gravity vector computed in Task 1 instead of overwriting with the
     # constant defined in ``constants.GRAVITY``.  This preserves any
     # location-specific variation calculated earlier in the pipeline.
     logging.info(f"Using gravity vector from Task 1: {g_NED}")
 
     # --------------------------------
-    # Subtask 4.11: Initialize Output Arrays
+    # Subtask 4.10: Initialize Output Arrays
     # --------------------------------
-    logging.info("Subtask 4.11: Initializing output arrays.")
+    logging.info("Subtask 4.10: Initializing output arrays.")
     # per-method integration results
     pos_integ = {}
     vel_integ = {}
@@ -1389,9 +1513,9 @@ def main():
     vel_integ_ecef = {}
 
     # --------------------------------
-    # Subtask 4.12: Integrate IMU Accelerations for Each Method
+    # Subtask 4.11: Integrate IMU Accelerations for Each Method
     # --------------------------------
-    logging.info("Subtask 4.12: Integrating IMU accelerations for each method.")
+    logging.info("Subtask 4.11: Integrating IMU accelerations for each method.")
     for m in methods:
         logging.info(f"Integrating IMU data using {m} method.")
         C_B_N = C_B_N_methods[m]
@@ -1417,9 +1541,9 @@ def main():
     )
 
     # --------------------------------
-    # Subtask 4.13: Validate and Plot Data
+    # Subtask 4.12: Validate and Plot Data
     # --------------------------------
-    logging.info("Subtask 4.13: Validating and plotting data.")
+    logging.info("Subtask 4.12: Validating and plotting data.")
     t0 = gnss_time[0]
     t_rel_ilu = imu_time - t0
     t_rel_gnss = gnss_time - t0
@@ -1528,7 +1652,7 @@ def main():
     )
     fig_comp.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_comp, RESULTS_DIR, tag, "task4_13_1", "comparison_ned", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_comp, RESULTS_DIR, tag, "task4_12_1", "derivedGNSS_vs_derivedIMU_NED", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_comp)
     logging.info("Comparison plot in NED frame saved")
 
@@ -1566,7 +1690,7 @@ def main():
     )
     fig_mixed.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_mixed, RESULTS_DIR, tag, "task4_13_2", "mixed_frames", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_mixed, RESULTS_DIR, tag, "task4_12_2", "measured_posvel_ECEF_accel_BODY", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_mixed)
     logging.info("Mixed frames plot saved")
 
@@ -1637,7 +1761,7 @@ def main():
     )
     fig_ned.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ned, RESULTS_DIR, tag, "task4_13_3", "all_ned", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ned, RESULTS_DIR, tag, "task4_12_3", "integrated_trajectory_NED", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_ned)
     logging.info("All data in NED frame plot saved")
 
@@ -1697,7 +1821,7 @@ def main():
     fig_ecef.suptitle(f"Task 4 – {method} – ECEF Frame (Derived IMU vs. GNSS)")
     fig_ecef.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ecef, RESULTS_DIR, tag, "task4_13_4", "all_ecef", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ecef, RESULTS_DIR, tag, "task4_12_4", "integrated_trajectory_ECEF", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_ecef)
     logging.info("All data in ECEF frame plot saved")
 
@@ -1772,7 +1896,7 @@ def main():
     )
     fig_body.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_body, RESULTS_DIR, tag, "task4_13_5", "all_body", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_body, RESULTS_DIR, tag, "task4_12_5", "integrated_trajectory_BODY", ext="png", dpi=200, bbox_inches="tight")
     plt.close(fig_body)
     logging.info("All data in body frame plot saved")
     if not args.no_plots:
@@ -2546,91 +2670,10 @@ def main():
 
     plt.tight_layout()
     if not args.no_plots:
-        save_plot(fig, RESULTS_DIR, tag, "task5_8_2", f"results_{method}", ext="png", dpi=200)
+        save_plot(fig, RESULTS_DIR, tag, "task5_8_2", "measuredGNSS_vs_fused_NED", ext="png", dpi=200)
     logging.info(f"Subtask 5.8.2: {method} plot saved")
     logging.debug(f"# Subtask 5.8.2: {method} plotting completed.")
     plt.close(fig)
-
-    # Plot fused data in mixed reference frames.
-    # One row per reference frame so all three are represented:
-    #   row 0 position in NED, row 1 velocity in ECEF, row 2 acceleration in body.
-    logging.info("Plotting fused data in mixed frames.")
-    fig_mixed_fused, ax_mixed_fused = plt.subplots(3, 3, figsize=(15, 10))
-    dirs_pos = ["N_NED", "E_NED", "D_NED"]
-    dirs_vel = ["VX_ECEF", "VY_ECEF", "VZ_ECEF"]
-    dirs_acc = ["AX_body", "AY_body", "AZ_body"]
-    c = colors.get(method, None)
-    vel_ecef = (C_NED_to_ECEF @ fused_vel[method].T).T
-    C_N_B = C_B_N_methods[method].T
-    acc_body = (C_N_B @ fused_acc[method].T).T
-    # The GNSS-derived acceleration is the measured counterpart of the fused
-    # acceleration; without it the bottom row had a single trace while the rows
-    # above compared three.
-    gnss_acc_body = (C_N_B @ gnss_acc_ned.T).T
-    truth_acc_body = None
-    if truth_vel_ned_i is not None:
-        truth_acc_ned = np.gradient(truth_vel_ned_i, t_rel_ilu, axis=0)
-        truth_acc_body = (C_N_B @ truth_acc_ned.T).T
-    for i in range(3):
-        for j in range(3):
-            ax = ax_mixed_fused[i, j]
-            if i == 0:
-                ax.plot(t_rel_gnss, gnss_pos_ned[:, j], "k-", label="Measured GNSS")
-                ax.plot(
-                    t_rel_ilu,
-                    fused_pos[method][:, j],
-                    c,
-                    alpha=0.7,
-                    label=f"Fused (GNSS+IMU, {method})",
-                )
-                if truth_pos_ned_i is not None:
-                    ax.plot(t_rel_ilu, truth_pos_ned_i[:, j], "m-", label="Truth")
-                ax.set_title(f"Position {dirs_pos[j]}")
-                ax.set_ylabel("Position [m]")
-            elif i == 1:
-                ax.plot(t_rel_gnss, gnss_vel_ecef[:, j], "k-", label="Measured GNSS")
-                ax.plot(
-                    t_rel_ilu,
-                    vel_ecef[:, j],
-                    c,
-                    alpha=0.7,
-                    label=f"Fused (GNSS+IMU, {method})",
-                )
-                if truth_vel_ecef_i is not None:
-                    ax.plot(t_rel_ilu, truth_vel_ecef_i[:, j], "m-", label="Truth")
-                ax.set_title(f"Velocity {dirs_vel[j]}")
-                ax.set_ylabel("Velocity [m/s]")
-            else:
-                ax.plot(t_rel_gnss, gnss_acc_body[:, j], "k-", label="GNSS (Derived)")
-                ax.plot(
-                    t_rel_ilu,
-                    acc_body[:, j],
-                    c,
-                    alpha=0.7,
-                    label=f"Fused (GNSS+IMU, {method})",
-                )
-                if truth_acc_body is not None:
-                    ax.plot(t_rel_ilu, truth_acc_body[:, j], "m-", label="Truth")
-                ax.set_title(f"Acceleration {dirs_acc[j]}")
-                ax.set_ylabel("Acceleration [m/s²]")
-                # The IMU power-up transient reaches ~600 m/s^2 and would
-                # otherwise flatten the whole trace against the axis.
-                _finite = acc_body[np.isfinite(acc_body[:, j]), j]
-                if _finite.size:
-                    _lim = np.percentile(np.abs(_finite), 99.5)
-                    if _lim > 0:
-                        ax.set_ylim(-1.5 * _lim, 1.5 * _lim)
-            ax.set_xlabel("Time (s)")
-            ax.legend(loc="best")
-    fig_mixed_fused.suptitle(
-        f"Task 5.8.3 – {method} – Mixed Frames "
-        f"(Position NED, Velocity ECEF, Acceleration Body)"
-    )
-    fig_mixed_fused.tight_layout(rect=[0, 0, 1, 0.95])
-    if not args.no_plots:
-        save_plot(fig_mixed_fused, RESULTS_DIR, tag, "task5_8_3", "mixed_frames", ext="png", dpi=200, bbox_inches="tight")
-    plt.close(fig_mixed_fused)
-    logging.info("Fused mixed frames plot saved")
 
     # ----- Additional reference frame plots -----
     logging.info("Plotting all data in NED frame.")
@@ -2655,7 +2698,7 @@ def main():
     fig_ned_all.suptitle(f"Task 5 – {method} – NED Frame (Fused)")
     fig_ned_all.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ned_all, RESULTS_DIR, tag, "task5_8_4", "all_ned", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ned_all, RESULTS_DIR, tag, "task5_8_4", "fused_state_NED", ext="png", dpi=200, bbox_inches="tight")
         # Save a MATLAB bundle for Task 5 NED fused data
         try:
             from scipy.io import savemat  # type: ignore
@@ -2703,7 +2746,7 @@ def main():
     fig_ecef_all.suptitle(f"Task 5 – {method} – ECEF Frame (Fused)")
     fig_ecef_all.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_ecef_all, RESULTS_DIR, tag, "task5_8_5", "all_ecef", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_ecef_all, RESULTS_DIR, tag, "task5_8_5", "fused_state_ECEF", ext="png", dpi=200, bbox_inches="tight")
         # Save a MATLAB bundle for Task 5 ECEF fused data
         try:
             from scipy.io import savemat  # type: ignore
@@ -2744,7 +2787,7 @@ def main():
     fig_body_all.suptitle(f"Task 5 – {method} – Body Frame (Fused)")
     fig_body_all.tight_layout(rect=[0, 0, 1, 0.95])
     if not args.no_plots:
-        save_plot(fig_body_all, RESULTS_DIR, tag, "task5_8_6", "all_body", ext="png", dpi=200, bbox_inches="tight")
+        save_plot(fig_body_all, RESULTS_DIR, tag, "task5_8_6", "fused_state_BODY", ext="png", dpi=200, bbox_inches="tight")
         # Save a MATLAB bundle for Task 5 Body fused data
         try:
             from scipy.io import savemat  # type: ignore
@@ -2775,34 +2818,28 @@ def main():
     ax_innov[-1].set_xlabel("GNSS update index")
     fig_innov.suptitle("Task 5 – Pre-fit Innovations (Fused vs. Measured GNSS)")
     fig_innov.tight_layout()
-    if not args.no_plots:
-        save_plot(fig_innov, RESULTS_DIR, tag, "task5_8_7", f"{method.lower()}_innovations")
+    # Removed: task5_8_7 pre-fit innovations figure.
     plt.close(fig_innov)
 
     # Plot residuals and attitude using helper functions
     if not args.no_plots:
         res = compute_residuals(gnss_time, gnss_pos_ned, imu_time, fused_pos[method])
         plot_residuals(gnss_time, res, RESULTS_DIR, tag, method)
-        plot_attitude(
-            imu_time,
-            attitude_q_all[method],
-            RESULTS_DIR,
-            tag,
-            method,
-        )
+        # Removed: task5_8_1 attitude angles. The Body->NED attitude is covered
+        # by task6_4 (quaternion vs truth) and the task7_6 attitude figures.
 
     # Create plot summary
     summary = {
         f"{run_id}_task1_location_map.png": "Task 1 location map",
         f"{tag}_task3_errors_comparison.png": "Attitude initialization error comparison",
         f"{tag}_task3_quaternions_comparison.png": "Quaternion components for initialization",
-        f"{tag}_task4_13_1_comparison_ned.png": "Derived GNSS vs Derived IMU data in NED frame",
-        f"{tag}_task4_13_2_mixed_frames.png": "GNSS/IMU data in mixed frames",
-        f"{tag}_task4_13_3_all_ned.png": "Integrated data in NED frame",
-        f"{tag}_task4_13_4_all_ecef.png": "Integrated data in ECEF frame",
-        f"{tag}_task4_13_5_all_body.png": "Integrated data in body frame",
+        f"{tag}_task4_12_1_comparison_ned.png": "Derived GNSS vs Derived IMU data in NED frame",
+        f"{tag}_task4_12_2_measured_posvel_ECEF_accel_BODY.png":
+            "Measured position/velocity in ECEF, acceleration in body",
+        f"{tag}_task4_12_3_all_ned.png": "Integrated data in NED frame",
+        f"{tag}_task4_12_4_all_ecef.png": "Integrated data in ECEF frame",
+        f"{tag}_task4_12_5_all_body.png": "Integrated data in body frame",
         f"{tag}_task5_8_2_results_{method}.png": f"Kalman filter results using {method}",
-        f"{tag}_task5_8_3_mixed_frames.png": "Kalman filter results in mixed frames",
         f"{tag}_task5_8_4_all_ned.png": "Kalman filter results in NED frame",
         f"{tag}_task5_8_5_all_ecef.png": "Kalman filter results in ECEF frame",
         f"{tag}_task5_8_6_all_body.png": "Kalman filter results in body frame",
@@ -2845,20 +2882,8 @@ def main():
     _q_wxyz = attitude_q_all[method]
     _q_xyzw = np.column_stack([_q_wxyz[:, 1], _q_wxyz[:, 2], _q_wxyz[:, 3], _q_wxyz[:, 0]])
     euler = R.from_quat(_q_xyzw).as_euler("xyz", degrees=True)
-    if not args.no_plots:
-        plt.figure()
-        plt.plot(imu_time, euler[:, 0], label="Roll")
-        plt.plot(imu_time, euler[:, 1], label="Pitch")
-        plt.plot(imu_time, euler[:, 2], label="Yaw")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Angle (deg)")
-        plt.legend(loc="best")
-        plt.title(f"Task 6.1: {tag} Attitude Angles")
-        png = RESULTS_DIR / f"{tag}_task6_1_attitude_angles.png"
-        from utils.matlab_fig_export import save_matlab_fig
-        fig = plt.gcf()
-        save_matlab_fig(fig, str(Path(png).with_suffix('')))
-        plt.close()
+    # Removed: task6_6 attitude angles. The Body->NED attitude is already
+    # covered by task6_4 (quaternion vs truth) and the task7_6 figures.
 
     C_NED_to_ECEF = C_ECEF_to_NED.T
     pos_ecef = np.array([C_NED_to_ECEF @ p + ref_r0 for p in fused_pos[method]])
@@ -3103,15 +3128,49 @@ def main():
     }
     save_mat(str(RESULTS_DIR / f"{tag}_tasks.mat"), tasks_mat)
 
-    if measure_source == "truth" and truth_pos_ned is not None:
-        plot_task6_truth_overlay(
-            imu_time,
-            fused_pos[method],
-            fused_vel[method],
-            truth_pos_ned,
-            truth_vel_ned,
-            RESULTS_DIR / f"{tag}_task6_3_truth_vs_fused.png",
-        )
+    # ---- Task 6 and Task 7: fused vs truth in NED, ECEF and Body -----------
+    # Runs whenever a truth file was supplied, not only for measure_source=truth.
+    if truth_file and truth_pos_ned_i is not None and truth_vel_ned_i is not None:
+        try:
+            from task6_task7_plots import (
+                task6_fused_vs_truth,
+                task6_quaternion_comparison,
+                task7_5_diff_over_time,
+                task7_6_attitude,
+            )
+
+            _C_B_N = C_B_N_methods[method]
+            _args6 = (
+                tag, imu_time,
+                fused_pos[method], fused_vel[method],
+                truth_pos_ned_i, truth_vel_ned_i,
+                C_ECEF_to_NED, ref_r0, _C_B_N, RESULTS_DIR,
+            )
+            made = task6_fused_vs_truth(*_args6)
+            made += task7_5_diff_over_time(*_args6[:-1], RESULTS_DIR)
+
+            # Attitude comparisons need a truth quaternion; the bundled truth
+            # stores it Body-to-ECEF as [qx,qy,qz,qw] in the last four columns.
+            _qt = _truth_quaternion_b2n(
+                truth_file, imu_time, C_ECEF_to_NED, args.truth_quat_frame
+            )
+            if _qt is not None and attitude_q is not None and len(attitude_q):
+                _qf = np.asarray(attitude_q, dtype=float)
+                if _qf.shape[0] == _qt.shape[0]:
+                    made += task6_quaternion_comparison(
+                        tag, imu_time, _qf, _qt, C_ECEF_to_NED, RESULTS_DIR
+                    )
+                    made += task7_6_attitude(tag, imu_time, _qf, _qt, RESULTS_DIR)
+                else:
+                    logging.warning(
+                        "Task 6/7 attitude skipped: %d fused vs %d truth quaternions",
+                        _qf.shape[0], _qt.shape[0],
+                    )
+            else:
+                logging.info("Task 6/7 attitude skipped: no truth quaternion available")
+            logging.info("Task 6/7 frame comparisons: %d figures", len(made))
+        except Exception as ex:  # pragma: no cover - plotting must not abort a run
+            logging.warning("Task 6/7 frame comparison plots failed: %s", ex)
 
     # Compact overview figure with subplots (always saved)
     # Use GNSS and Truth series already aligned/interpolated to the IMU timebase
@@ -3207,25 +3266,20 @@ def main():
             dataset_id,
             threshold=0.01,
             base_dir=RESULTS_DIR,
+            method=method,
         )
 
         euler_deg = np.rad2deg(euler_all[method])
-        save_euler_angles(imu_time, euler_deg, dataset_id, method, base_dir=RESULTS_DIR)
+        # save_euler_angles: removed - duplicates the Task 6 attitude figures
 
         pos_f = interpolate_series(gnss_time, imu_time, fused_pos[method])
         vel_f = interpolate_series(gnss_time, imu_time, fused_vel[method])
-        save_velocity_profile(gnss_time, vel_f, gnss_vel_ned, base_dir=RESULTS_DIR)
-        save_residual_plots(
-            gnss_time,
-            pos_f,
-            gnss_pos_ned,
-            vel_f,
-            gnss_vel_ned,
-            tag,
-            base_dir=RESULTS_DIR,
-        )
+        # Removed: task5_9_1/5_9_2 residuals and task5_9_4 velocity profile.
+        # They compared the fused solution against GNSS on the GNSS grid, which
+        # duplicates the Task 7.5 fused-minus-truth figures and is not
+        # meaningful across all three methods.
 
-        save_attitude_over_time(imu_time, euler_deg, dataset_id, method, base_dir=RESULTS_DIR)
+        # save_attitude_over_time: removed - duplicates the Task 6 attitude figures
 
         plot_all_methods(
             imu_time,

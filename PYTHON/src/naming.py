@@ -9,10 +9,14 @@ from pathlib import Path
 from typing import Union
 
 def make_tag(dataset: str, gnss: str, method: str) -> str:
-    """Return a dataset tag like ``IMU_X001_GNSS_X001_TRIAD``."""
+    """Return a tag like ``TRIAD_IMU_X001_GNSS_X001``.
+
+    Method first, then the IMU dataset, then the GNSS dataset, so files sort by
+    method and the two inputs stay adjacent and readable.
+    """
     dname = Path(dataset).stem
     gname = Path(gnss).stem
-    return f"{dname}_{gname}_{method}"
+    return f"{method}_{dname}_{gname}"
 
 def script_name(dataset: str, method: str, task: int, ext: str = "py") -> str:
     """Return a script filename for a given dataset, method and task."""

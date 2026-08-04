@@ -25,7 +25,7 @@ def plot_attitude(time, quats, results_dir, run_id, method):
     axs[-1].set_xlabel("Time (s)")
     fig.suptitle("Task 5: Attitude Angles Over Time")
     fig.tight_layout(rect=[0, 0, 1, 0.96])
-    save_and_log(fig, results_dir, run_id, "task5_8_1", f"attitude_{method}")
+    save_and_log(fig, results_dir, run_id, "task5_8_1", "attitude_BodyToNED")
     plt.close(fig)
 
 
