@@ -19,8 +19,7 @@ GNSS_ID ?= x001
 TRUTH_FILE ?= DATA/Truth/STATE_X001.txt
 OUTPUT_DIR ?= results
 RELEASE_TRUTH = $(if $(filter 1 yes true,$(NO_TRUTH)),--no-truth,--truth "$(TRUTH_FILE)")
-RELEASE_MATLAB = $(if $(strip $(MATLAB_BIN)),--matlab-bin "$(MATLAB_BIN)") \
-                 $(if $(filter 1 yes true,$(ALLOW_MISSING_FIG)),--allow-missing-fig)
+RELEASE_MATLAB = $(if $(strip $(MATLAB_BIN)),--matlab-bin "$(MATLAB_BIN)")
 
 .PHONY: help venv deps test smoke docs doctor gui \
         list-tasks contract validate validate-full \
@@ -29,7 +28,8 @@ RELEASE_MATLAB = $(if $(strip $(MATLAB_BIN)),--matlab-bin "$(MATLAB_BIN)") \
         run-x002-no-truth run-everything clean-results \
         list-datasets run-dataset run-x001 run-x002 run-x003 \
         run-x001-small run-x002-small run-x003-small \
-        release release-combo release-18 release-list release-check release-figs \
+        release release-combo release-18 release-compute release-18-compute \
+        release-list release-check release-figs \
         release-custom clean-heavy
 
 # ---------------------------------------------------------------------------
@@ -44,12 +44,14 @@ help:
 	@echo "  make release                            X001 IMU + X001 GNSS + TRIAD"
 	@echo "  make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD"
 	@echo "  make release-18                         all 18 IMU x GNSS x method runs"
+	@echo "  make release-compute                    compute here; create FIGs later in MATLAB"
+	@echo "  make release-18-compute                 same two-stage mode for all 18"
 	@echo "  make release-list                       list the exact 18 combinations"
 	@echo "  make release-check IMU_ID=x002 GNSS_ID=x001 METHOD=Davenport"
 	@echo "  make release-figs MATLAB_BIN=/path/to/matlab   FIGs for existing PNGs"
 	@echo "  make release-custom IMU_FILE=... GNSS_FILE=... METHOD=TRIAD"
 	@echo "  Add NO_TRUTH=1 to omit Tasks 6-7 truth comparisons."
-	@echo "  MATLAB is required for native .fig output; set MATLAB_BIN if not on PATH."
+	@echo "  Normal release targets require MATLAB so every PNG receives a native FIG."
 	@echo ""
 	@echo "Discovery"
 	@echo "  make list-tasks           print every task, subtask and figure"
@@ -138,6 +140,15 @@ release release-combo:
 
 release-18:
 	$(RELEASE_RUN) --all $(RELEASE_TRUTH) $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
+
+# Two-stage mode for this Mac: compute now, create native FIGs later on any
+# MATLAB system without repeating the full fusion computation.
+release-compute:
+	$(RELEASE_RUN) --imu "$(IMU_ID)" --gnss "$(GNSS_ID)" --method "$(METHOD)" \
+	  $(RELEASE_TRUTH) --defer-fig --output "$(OUTPUT_DIR)"
+
+release-18-compute:
+	$(RELEASE_RUN) --all $(RELEASE_TRUTH) --defer-fig --output "$(OUTPUT_DIR)"
 
 release-list:
 	$(RELEASE_RUN) --list

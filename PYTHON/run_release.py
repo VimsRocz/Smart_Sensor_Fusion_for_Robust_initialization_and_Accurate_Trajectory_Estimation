@@ -400,6 +400,49 @@ def export_native_figures(results_dir: Path, matlab_binary: Path) -> int:
     return len(pngs)
 
 
+def apply_matlab_policy(
+    matlab_binary: Path | None,
+    *,
+    plots_enabled: bool,
+    defer_fig: bool,
+) -> None:
+    """Require MATLAB unless the user explicitly chooses two-stage export.
+
+    A deferred run computes PNG/MAT here and performs only the lightweight FIG
+    serialization later on another system that has MATLAB.
+    """
+    if not plots_enabled or matlab_binary is not None:
+        return
+    message = (
+        "MATLAB was not found, so genuine native .fig files cannot be created "
+        "on this system. Use --defer-fig to compute PNG/MAT now, then copy the "
+        "results directory to a MATLAB system and run its bundled "
+        "export_release_figures.m once. That conversion does not rerun fusion."
+    )
+    if not defer_fig:
+        raise InputValidationError(message)
+    print(f"WARNING: {message}", file=sys.stderr)
+
+
+def prepare_deferred_fig_bundle(results_dir: Path) -> None:
+    """Make a results directory self-contained for FIG conversion elsewhere."""
+    results_dir.mkdir(parents=True, exist_ok=True)
+    exporter = results_dir / "export_release_figures.m"
+    shutil.copy2(ROOT / "MATLAB/export_release_figures.m", exporter)
+    instructions = results_dir / "CREATE_NATIVE_FIGS.txt"
+    instructions.write_text(
+        "NATIVE MATLAB FIG CONVERSION (NO FUSION RECOMPUTATION)\n\n"
+        "1. Copy this complete results directory to a system with MATLAB.\n"
+        "2. In MATLAB, change Current Folder to this directory.\n"
+        "3. Run:  export_release_figures(pwd)\n"
+        "4. Every PNG will then have a same-stem native FIG. Open any FIG "
+        "directly with openfig or by double-clicking it.\n",
+        encoding="utf-8",
+    )
+    print(f"Deferred FIG conversion bundle: {exporter}")
+    print(f"Deferred FIG instructions: {instructions}")
+
+
 def _print_combinations() -> None:
     print("#  IMU   GNSS  Method")
     for index, combination in enumerate(bundled_combinations(), 1):
@@ -428,9 +471,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--matlab-bin", help="path to MATLAB executable (auto-detected when omitted)"
     )
     parser.add_argument(
+        "--defer-fig",
         "--allow-missing-fig",
+        dest="defer_fig",
         action="store_true",
-        help="allow PNG/MAT output when MATLAB is unavailable (native FIG omitted)",
+        help=(
+            "compute PNG/MAT without MATLAB and bundle a no-recompute FIG "
+            "converter for a MATLAB system"
+        ),
     )
     parser.add_argument(
         "--export-figs-only",
@@ -509,12 +557,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Preflight passed for {len(combinations)} combination(s); nothing was run.")
         return 0
 
-    if not args.no_plots and matlab_binary is None and not args.allow_missing_fig:
-        raise InputValidationError(
-            "MATLAB was not found, so directly openable .fig files cannot be "
-            "created. Install MATLAB or pass --matlab-bin /path/to/matlab. Use "
-            "--allow-missing-fig only when PNG plus MAT data is acceptable."
-        )
+    apply_matlab_policy(
+        matlab_binary,
+        plots_enabled=not args.no_plots,
+        defer_fig=args.defer_fig,
+    )
+    if args.defer_fig and matlab_binary is None and not args.no_plots:
+        prepare_deferred_fig_bundle(output_dir)
 
     if len(combinations) == 18:
         output_parent = output_dir.parent

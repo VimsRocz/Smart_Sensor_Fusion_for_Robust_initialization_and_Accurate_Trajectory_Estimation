@@ -8,6 +8,7 @@ import run_release
 from run_release import (
     Combination,
     InputValidationError,
+    apply_matlab_policy,
     build_command,
     bundled_combinations,
     export_native_figures,
@@ -15,6 +16,7 @@ from run_release import (
     inspect_gnss,
     inspect_imu,
     inspect_truth,
+    prepare_deferred_fig_bundle,
     validate_alignment,
 )
 
@@ -104,6 +106,23 @@ def test_explicit_matlab_executable_is_detected(tmp_path: Path) -> None:
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
     executable.chmod(0o755)
     assert find_matlab(str(executable)) == executable.resolve()
+
+
+def test_missing_matlab_requires_explicit_deferred_mode() -> None:
+    with pytest.raises(InputValidationError, match="MATLAB was not found"):
+        apply_matlab_policy(None, plots_enabled=True, defer_fig=False)
+
+
+def test_deferred_mode_warns_and_can_continue(capsys) -> None:
+    apply_matlab_policy(None, plots_enabled=True, defer_fig=True)
+    assert "does not rerun fusion" in capsys.readouterr().err
+
+
+def test_deferred_bundle_is_self_contained(tmp_path: Path) -> None:
+    prepare_deferred_fig_bundle(tmp_path)
+    assert (tmp_path / "export_release_figures.m").is_file()
+    instructions = (tmp_path / "CREATE_NATIVE_FIGS.txt").read_text(encoding="utf-8")
+    assert "export_release_figures(pwd)" in instructions
 
 
 def test_native_fig_export_audits_every_png(

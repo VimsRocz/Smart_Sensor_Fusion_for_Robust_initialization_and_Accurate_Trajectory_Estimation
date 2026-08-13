@@ -94,8 +94,11 @@ Frames (Position NED, Velocity ECEF, Acceleration Body)`.
 Each plot is written as **`.png` and native MATLAB `.fig`**, plus a `.mat`
 companion holding the plotted arrays; most plotting paths also write PDF. The FIG stores the exact rendered
 plot inside a native MATLAB figure, so it opens after upload without running a
-redraw script. The release command fails before computation if MATLAB cannot be
-found, unless the user explicitly supplies `ALLOW_MISSING_FIG=1`.
+redraw script. Normal release targets require MATLAB. To compute on a machine
+without MATLAB, use `make release-compute` or `make release-18-compute`; the
+results contain a portable FIG-conversion bundle. Copy that directory to a
+MATLAB system and run `export_release_figures(pwd)` once. This creates the FIGs
+without repeating the fusion computation.
 
 ## Two fixes that were needed to produce these
 

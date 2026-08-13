@@ -106,9 +106,20 @@ the fusion filters:
 make release-figs MATLAB_BIN=/path/to/matlab
 ```
 
-The release runner stops before computation when MATLAB is unavailable so it
-cannot silently deliver incomplete plot formats. `ALLOW_MISSING_FIG=1` is an
-explicit fallback for environments where PNG plus MAT data is acceptable.
+Normal release commands require MATLAB because they promise a genuine FIG for
+every PNG. For a two-system workflow, compute here without MATLAB using:
+
+```bash
+make release-compute IMU_ID=x001 GNSS_ID=x001 METHOD=TRIAD
+# or all combinations (requires more than 20 GiB free):
+make release-18-compute OUTPUT_DIR=/path/on/a/larger/disk
+```
+
+The output directory includes `export_release_figures.m` and
+`CREATE_NATIVE_FIGS.txt`. Copy that complete directory to any system with
+MATLAB and run `export_release_figures(pwd)` there once. This creates every
+native FIG without repeating IMU/GNSS computation. The resulting FIG files are
+portable and open directly later with a double-click or `openfig`.
 
 ### All 18 possibilities
 
