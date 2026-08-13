@@ -23,6 +23,17 @@ from utils.matlab_fig_export import save_matlab_fig  # noqa: E402
 NED = ("North", "East", "Down")
 
 
+def _ensure_matlab_helper(out_dir: Path) -> None:
+    """Copy show_task_plot.m beside the .mat files so MATLAB can find it."""
+    try:
+        src = Path(__file__).resolve().parents[2] / "MATLAB" / "show_task_plot.m"
+        dst = Path(out_dir) / "show_task_plot.m"
+        if src.is_file() and (not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime):
+            dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _save(fig, out_dir, stem, arrays=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -33,48 +44,36 @@ def _save(fig, out_dir, stem, arrays=None):
 
             savemat(str(out_dir / f"{stem}.mat"),
                     {k: np.asarray(v) for k, v in arrays.items()}, do_compression=True)
+            _ensure_matlab_helper(out_dir)
             print(f"[MAT ] {out_dir / stem}.mat keys={sorted(arrays)}")
         except Exception as exc:  # pragma: no cover
             print(f"[WARN] could not write {stem}.mat: {exc}")
     plt.close(fig)
 
 
-def _basemap(fig, subplot_spec, lat_deg, lon_deg):
-    """Axes showing coastlines and land behind the marked site.
+def _basemap(fig, nrows, ncols, index, lat_deg, lon_deg):
+    """Graticule with the site marked.
 
-    Uses cartopy when available so the latitude/longitude is readable against
-    real geography; falls back to a plain graticule otherwise.
+    Cartopy is deliberately not used here: it downloads Natural Earth data at
+    draw time, which fails offline or behind an SSL-inspecting proxy and takes
+    the whole figure down with it. The full world map with coastlines is
+    already produced by task1_2_location_map via plotly/kaleido.
     """
-    try:
-        import cartopy.crs as ccrs
-        import cartopy.feature as cfeature
-
-        ax = fig.add_subplot(subplot_spec, projection=ccrs.PlateCarree())
-        ax.set_global()
-        ax.add_feature(cfeature.LAND, facecolor="#e8e8d8", zorder=0)
-        ax.add_feature(cfeature.OCEAN, facecolor="#d6e8f5", zorder=0)
-        ax.add_feature(cfeature.COASTLINE, linewidth=0.6, zorder=1)
-        ax.add_feature(cfeature.BORDERS, linewidth=0.3, alpha=0.6, zorder=1)
-        gl = ax.gridlines(draw_labels=True, linewidth=0.4, alpha=0.4)
-        gl.top_labels = gl.right_labels = False
-        ax.plot([lon_deg], [lat_deg], "r*", markersize=20, zorder=5,
-                transform=ccrs.PlateCarree(), label="Launch site")
-        ax.annotate(f"  {lat_deg:.4f}°, {lon_deg:.4f}°",
-                    xy=(lon_deg, lat_deg), xycoords=ax.get_transform(ccrs.PlateCarree()),
-                    fontsize=9, va="center", zorder=6,
-                    bbox=dict(fc="white", alpha=0.75, ec="none", pad=1.5))
-        return ax
-    except Exception:
-        ax = fig.add_subplot(subplot_spec)
-        ax.set_xlim(-180, 180); ax.set_ylim(-90, 90)
-        ax.set_xticks(range(-180, 181, 60)); ax.set_yticks(range(-90, 91, 30))
-        ax.grid(True, alpha=0.3)
-        ax.axhline(0, color="0.5", lw=0.8); ax.axvline(0, color="0.5", lw=0.8)
-        ax.plot([lon_deg], [lat_deg], "r*", markersize=18, zorder=5, label="Launch site")
-        ax.annotate(f"  {lat_deg:.4f}°, {lon_deg:.4f}°", (lon_deg, lat_deg),
-                    fontsize=9, va="center")
-        ax.set_xlabel("Longitude [deg]"); ax.set_ylabel("Latitude [deg]")
-        return ax
+    ax = fig.add_subplot(nrows, ncols, index)
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-90, 90)
+    ax.set_xticks(range(-180, 181, 60))
+    ax.set_yticks(range(-90, 91, 30))
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color="0.5", lw=0.8)     # equator
+    ax.axvline(0, color="0.5", lw=0.8)     # prime meridian
+    ax.plot([lon_deg], [lat_deg], "r*", markersize=20, zorder=5, label="Launch site")
+    ax.annotate(f"  {lat_deg:.4f}°, {lon_deg:.4f}°", (lon_deg, lat_deg),
+                fontsize=9, va="center",
+                bbox=dict(fc="white", alpha=0.75, ec="none", pad=1.5))
+    ax.set_xlabel("Longitude [deg]")
+    ax.set_ylabel("Latitude [deg]")
+    return ax
 
 
 def task1_2_gravity(tag, lat_deg, lon_deg, alt_m, g_ned, out_dir):
@@ -92,12 +91,12 @@ def task1_2_gravity(tag, lat_deg, lon_deg, alt_m, g_ned, out_dir):
     ax0.set_ylabel("Gravity [m/s²]")
     ax0.set_title(f"Gravity in NED   |g| = {g_mag:.6f} m/s²   (+Z is down)")
 
-    ax1 = _basemap(fig, (1, 2, 2), lat_deg, lon_deg)
+    ax1 = _basemap(fig, 1, 2, 2, lat_deg, lon_deg)
     ax1.set_title(f"Launch site   alt = {alt_m:.1f} m")
     ax1.legend(loc="lower left", fontsize=9)
 
     fig.suptitle("Task 1.2 — gravity vector in NED and the reference location")
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.subplots_adjust(top=0.86, wspace=0.25)
     _save(fig, out_dir, f"{tag}_task1_2_gravity_vector_ned",
           arrays=dict(g_ned=g_ned, g_magnitude=g_mag,
                       lat_deg=lat_deg, lon_deg=lon_deg, alt_m=alt_m))
@@ -166,12 +165,12 @@ def task1_4_validation(tag, lat_deg, lon_deg, alt_m, g_ned, omega_ned, out_dir):
                  transform=ax0.transAxes)
     ax0.set_title("Reference vector validation", loc="left")
 
-    ax1 = _basemap(fig, (1, 2, 2), lat_deg, lon_deg)
+    ax1 = _basemap(fig, 1, 2, 2, lat_deg, lon_deg)
     ax1.set_title("Computed initial position from GNSS")
     ax1.legend(loc="lower left", fontsize=9)
 
     fig.suptitle("Task 1.4 — validating the NED reference vectors")
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.subplots_adjust(top=0.86, wspace=0.25)
     _save(fig, out_dir, f"{tag}_task1_4_reference_validation",
           arrays=dict(lat_deg=lat_deg, lon_deg=lon_deg, alt_m=alt_m,
                       g_ned=g_ned, omega_ie_ned=omega_ned,

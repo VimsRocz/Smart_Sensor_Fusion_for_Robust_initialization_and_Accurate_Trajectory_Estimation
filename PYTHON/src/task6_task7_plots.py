@@ -31,6 +31,17 @@ QUAT_LABELS = ("qw", "qx", "qy", "qz")
 FRAME_LABELS = {"ned": NED_LABELS, "ecef": ECEF_LABELS, "body": BODY_LABELS}
 
 
+def _ensure_matlab_helper(out_dir: Path) -> None:
+    """Copy show_task_plot.m beside the .mat files so MATLAB can find it."""
+    try:
+        src = Path(__file__).resolve().parents[2] / "MATLAB" / "show_task_plot.m"
+        dst = Path(out_dir) / "show_task_plot.m"
+        if src.is_file() and (not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime):
+            dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _save(fig, out_dir: Path, stem: str, arrays: dict | None = None) -> None:
     """Write PNG + PDF, and a .mat holding the plotted arrays for MATLAB."""
     out_dir = Path(out_dir)
@@ -45,6 +56,7 @@ def _save(fig, out_dir: Path, stem: str, arrays: dict | None = None) -> None:
                 {k: np.asarray(v) for k, v in arrays.items()},
                 do_compression=True,
             )
+            _ensure_matlab_helper(out_dir)
             print(f"[MAT ] {out_dir / stem}.mat keys={sorted(arrays)}")
         except Exception as exc:  # pragma: no cover
             print(f"[WARN] could not write {stem}.mat: {exc}")
@@ -102,7 +114,11 @@ def task6_fused_vs_truth(
         stem = f"{tag}_task6_{sub}_fused_vs_truth_{frame}"
         _save(fig, out_dir, stem, arrays=dict(
             t=t, pos_fused=fp, pos_truth=tp, vel_fused=fv, vel_truth=tv,
-            frame=frame, labels=list(labels)))
+            frame=frame, labels=list(labels),
+            plot_title=f"Task 6.{sub} - {frame.upper()} frame - TRUTH vs FUSED",
+            x_label="Time [s]", col_names=list(labels),
+            y_labels=["Position fused [m]", "Position truth [m]",
+                      "Velocity fused [m/s]", "Velocity truth [m/s]"]))
         written.append(stem)
     return written
 
@@ -145,7 +161,10 @@ def task6_quaternion_comparison(
         fig.tight_layout(rect=[0, 0, 1, 0.95])
         stem = f"{tag}_task6_{sub}_attitude_quaternion_{frame}"
         _save(fig, out_dir, stem, arrays=dict(
-            t=t, quat_fused_wxyz=qf, quat_truth_wxyz=qt, rotation=frame))
+            t=t, quat_fused_wxyz=qf, quat_truth_wxyz=qt, rotation=frame,
+            plot_title=f"Task 6.{sub} - {pretty} attitude quaternion - TRUTH vs FUSED",
+            x_label="Time [s]", col_names=list(QUAT_LABELS),
+            y_labels=["Fused quaternion", "Truth quaternion"]))
         written.append(stem)
     return written
 
@@ -182,7 +201,10 @@ def task7_5_diff_over_time(
         fig.tight_layout(rect=[0, 0, 1, 0.95])
         stem = f"{tag}_task7_5_diff_truth_fused_over_time_{frame}"
         _save(fig, out_dir, stem, arrays=dict(
-            t=t, diff_pos=dp, diff_vel=dv, frame=frame, labels=list(labels)))
+            t=t, diff_pos=dp, diff_vel=dv, frame=frame, labels=list(labels),
+            plot_title=f"Task 7.5 - {frame.upper()} frame - FUSED minus TRUTH",
+            x_label="Time [s]", col_names=list(labels),
+            y_labels=["Position error [m]", "Velocity error [m/s]"]))
         written.append(stem)
     return written
 
@@ -209,7 +231,11 @@ def task7_6_attitude(tag, t, quat_fused_b2n, quat_truth_b2n, out_dir):
     fig.suptitle("Task 7.6 — Body→NED attitude quaternion: TRUTH vs ESTIMATE")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     stem = f"{tag}_task7_6_BodyToNED_attitude_truth_vs_estimate_quaternion"
-    _save(fig, out_dir, stem, arrays=dict(t=t, quat_truth_wxyz=qt, quat_est_wxyz=qf))
+    _save(fig, out_dir, stem, arrays=dict(
+        t=t, quat_truth_wxyz=qt, quat_est_wxyz=qf,
+        plot_title="Task 7.6 - Body->NED quaternion: TRUTH vs ESTIMATE",
+        x_label="Time [s]", col_names=list(QUAT_LABELS),
+        y_labels=["Truth quaternion", "Estimate quaternion"]))
     written.append(stem)
 
     # 2) component-wise error
@@ -223,7 +249,11 @@ def task7_6_attitude(tag, t, quat_fused_b2n, quat_truth_b2n, out_dir):
     fig.suptitle("Task 7.6 — Body→NED quaternion error components (ESTIMATE − TRUTH)")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     stem = f"{tag}_task7_6_BodyToNED_attitude_quaternion_error_components"
-    _save(fig, out_dir, stem, arrays=dict(t=t, quat_error_wxyz=err))
+    _save(fig, out_dir, stem, arrays=dict(
+        t=t, quat_error_wxyz=err,
+        plot_title="Task 7.6 - Body->NED quaternion error (ESTIMATE - TRUTH)",
+        x_label="Time [s]", col_names=list(QUAT_LABELS),
+        y_labels=["Quaternion error"]))
     written.append(stem)
 
     # 3) Euler error over time
@@ -240,7 +270,10 @@ def task7_6_attitude(tag, t, quat_fused_b2n, quat_truth_b2n, out_dir):
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     stem = f"{tag}_task7_6_BodyToNED_attitude_euler_error_over_time"
     _save(fig, out_dir, stem, arrays=dict(
-        t=t, euler_error_deg=deul, euler_truth_deg=eul_t, euler_est_deg=eul_f))
+        t=t, euler_error_deg=deul, euler_truth_deg=eul_t, euler_est_deg=eul_f,
+        plot_title="Task 7.6 - Body->NED Euler error over time",
+        x_label="Time [s]", col_names=["Roll", "Pitch", "Yaw"],
+        y_labels=["Euler error [deg]", "Truth [deg]", "Estimate [deg]"]))
     written.append(stem)
 
     # 4) total attitude error angle (sign invariant)
@@ -255,7 +288,10 @@ def task7_6_attitude(tag, t, quat_fused_b2n, quat_truth_b2n, out_dir):
     fig.suptitle("Task 7.6 — total attitude error angle over time")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     stem = f"{tag}_task7_6_attitude_error_angle_over_time"
-    _save(fig, out_dir, stem, arrays=dict(t=t, attitude_error_deg=ang))
+    _save(fig, out_dir, stem, arrays=dict(
+        t=t, attitude_error_deg=ang,
+        plot_title="Task 7.6 - total attitude error angle",
+        x_label="Time [s]", y_labels=["Attitude error [deg]"]))
     written.append(stem)
     return written
 

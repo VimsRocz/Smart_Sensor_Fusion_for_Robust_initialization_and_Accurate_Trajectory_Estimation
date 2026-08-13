@@ -75,10 +75,14 @@ def save_matlab_fig(fig, out_stem: str) -> Path | None:
     stem = Path(out_stem)
     stem.parent.mkdir(parents=True, exist_ok=True)
 
+    # Cartopy GeoAxes cannot compute a tight bbox (NaN extents / invalid ring),
+    # so fall back to the plain bbox when the figure contains one.
+    has_geo = any(type(a).__name__.startswith("GeoAxes") for a in fig.get_axes())
+    save_kw = {} if has_geo else {"bbox_inches": "tight"}
     for suffix, dpi in ((".png", 200), (".pdf", 300)):
         target = stem.with_suffix(suffix)
         try:
-            fig.savefig(target, dpi=dpi, bbox_inches="tight")
+            fig.savefig(target, dpi=dpi, **save_kw)
             print(f"[{suffix[1:].upper()}] {target}")
             if suffix == ".png":
                 WRITTEN.append(target.name)
