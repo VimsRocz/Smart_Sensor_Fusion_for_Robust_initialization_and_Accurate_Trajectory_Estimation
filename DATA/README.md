@@ -205,7 +205,7 @@ The gyroscope behaves similarly but less cleanly: x and z came within 3% of the 
 
 **What this means in practice:** observing the full three-axis bias requires motion, or physically rotating the unit to obtain a second independent gravity direction. With 20 minutes of pad time and 49 s of flight, this dataset can only pin down the along-gravity component. Any claim that the pipeline "estimates IMU biases" should be qualified accordingly.
 
-### Intended pairing
+### Intended pairing and diagnostic cross-pairing
 
 X003 has no GNSS of its own. The pairing is confirmed by the legacy `config_full.yml`:
 
@@ -215,7 +215,17 @@ X003 has no GNSS of its own. The pairing is confirmed by the legacy `config_full
 - imu: IMU_X003.dat   gnss: GNSS_X002.csv
 ```
 
-Pairing `IMU_X003.dat` with `GNSS_X001.csv` would mix a biased IMU against noise-free GNSS — a combination the data was not built for.
+Those three are the delivered scenario pairings. The full release runner also
+supports the complete 3 IMU × 2 GNSS cross product because every file describes
+the same flight and time window. Cross-pairings are diagnostic experiments:
+`IMU_X003.dat` with `GNSS_X001.csv`, for example, intentionally measures a
+biased IMU against noise-free GNSS. Do not describe such a result as the
+official X003 scenario; name both source files explicitly.
+
+Before running, `PYTHON/run_release.py` checks synchronized **coverage**, not
+equal row counts. The correct bundled relationship is 500,000 IMU rows at
+400 Hz versus 1,250 GNSS epochs at 1 Hz, or about 400 IMU samples per GNSS
+epoch.
 
 ---
 

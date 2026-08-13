@@ -18,14 +18,15 @@ Every task writes its own folder. Every subtask produces at least one figure. Ev
 
 ```bash
 make venv        # one-time: creates .venv and installs everything
-make doctor      # confirms the interpreter and packages
+make doctor      # confirms interpreter, packages and MATLAB executable
 make release     # Tasks 1-7 on x001 with TRIAD -> results/
 ```
 
-Legacy dependencies, once:
+`make venv` installs both the canonical pipeline and full release-runner
+dependencies. For an already-created environment, update them with:
 
 ```bash
-.venv/bin/python -m pip install scipy pandas filterpy rich plotly kaleido cartopy
+.venv/bin/python -m pip install -e '.[tests,release]'
 ```
 
 > `pyenv: python: command not found`? Expected on pyenv; the `make` targets avoid
@@ -47,67 +48,152 @@ Full detail — every column, unit, noise and bias figure — in [DATA/README.md
 
 ---
 
-## How to run
+## How to run the full release pipeline
 
-Pick **any dataset × any method**. Methods: `TRIAD`, `Davenport`, `SVD`.
+The release runner executes the large 500,000-sample Tasks 1–7 script. It
+supports the complete cross product:
 
-```bash
-make release                                  # x001 + TRIAD (defaults)
-make release DATASET=x002 METHOD=SVD          # one dataset, one method
-make release DATASET=x003 METHOD=Davenport
+```text
+3 IMUs × 2 GNSS files × 3 attitude methods = 18 combinations
 ```
 
-Batches:
+Run any one combination with one command:
 
 ```bash
-make release-methods  DATASET=x002   # all 3 methods on one dataset
-make release-datasets METHOD=TRIAD   # one method on all 3 datasets
-make release-everything              # 3 methods x 3 datasets
+make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD
 ```
 
-`make help` lists everything.
-
-### Pairing any IMU with any GNSS
-
-Every IMU file is 500,000 rows at 400 Hz and every GNSS file shares the same
-1250 timestamps, so **any IMU can be paired with any GNSS**. This isolates one
-error source at a time:
+Run all 18 sequentially:
 
 ```bash
-# noisy IMU against perfect GNSS -> shows IMU noise alone
-make release-mix METHOD=TRIAD \
-  IMU_FILE=DATA/IMU/IMU_X002.dat \
-  GNSS_FILE=DATA/GNSS/GNSS_X001.csv
-
-# perfect IMU against noisy GNSS -> shows GNSS noise alone
-make release-mix METHOD=SVD \
-  IMU_FILE=DATA/IMU/IMU_X001.dat \
-  GNSS_FILE=DATA/GNSS/GNSS_X002.csv
+make release-18
 ```
 
-Add `TRUTH_FILE=DATA/Truth/STATE_X001.txt` for Tasks 6–7 comparisons. A
-`PairGuard` check normally blocks a truth file whose `Xnnn` tag differs from the
-IMU/GNSS; `release-mix` detects a deliberate cross-pairing and passes
-`--allow-truth-mismatch` for you.
+List the 18 without running, or validate the selected files and their time
+coverage first:
 
-| Pairing | Isolates |
+```bash
+make release-list
+make release-check IMU_ID=x003 GNSS_ID=x001 METHOD=SVD
+```
+
+`make release` is the short default for X001 IMU + X001 GNSS + TRIAD. The
+bundled `STATE_X001.txt` truth is used by default for Tasks 6–7 because every
+sensor file represents the same flight. Add `NO_TRUTH=1` to any command to run
+without truth comparisons.
+
+### PNG and directly openable MATLAB FIG output
+
+Every release PNG must have a native same-stem `.fig` file. The runner calls
+MATLAB automatically after plotting, embeds the exact rendered image in a
+native MATLAB figure, and audits the result count. You can double-click the
+`.fig` locally or upload it to MATLAB and open it directly—no redraw script is
+required. The same-stem `.mat` companion contains the numeric plot data.
+
+Native FIG serialization is a MATLAB feature; a `.mat` file renamed to `.fig`
+is not valid and will not open. MATLAB must therefore be installed on the
+machine that generates the results. If it is not on `PATH`, specify it once:
+
+```bash
+make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD \
+  MATLAB_BIN=/Applications/MATLAB_R2026a.app/bin/matlab
+```
+
+To add/audit FIG companions for PNGs already in `results/` without rerunning
+the fusion filters:
+
+```bash
+make release-figs MATLAB_BIN=/path/to/matlab
+```
+
+The release runner stops before computation when MATLAB is unavailable so it
+cannot silently deliver incomplete plot formats. `ALLOW_MISSING_FIG=1` is an
+explicit fallback for environments where PNG plus MAT data is acceptable.
+
+### All 18 possibilities
+
+Every row below is a valid one-line run. Values are case-insensitive.
+
+| # | IMU | GNSS | Method | Command |
+|---:|---|---|---|---|
+| 1 | X001 | X001 | TRIAD | `make release-combo IMU_ID=x001 GNSS_ID=x001 METHOD=TRIAD` |
+| 2 | X001 | X001 | Davenport | `make release-combo IMU_ID=x001 GNSS_ID=x001 METHOD=Davenport` |
+| 3 | X001 | X001 | SVD | `make release-combo IMU_ID=x001 GNSS_ID=x001 METHOD=SVD` |
+| 4 | X001 | X002 | TRIAD | `make release-combo IMU_ID=x001 GNSS_ID=x002 METHOD=TRIAD` |
+| 5 | X001 | X002 | Davenport | `make release-combo IMU_ID=x001 GNSS_ID=x002 METHOD=Davenport` |
+| 6 | X001 | X002 | SVD | `make release-combo IMU_ID=x001 GNSS_ID=x002 METHOD=SVD` |
+| 7 | X002 | X001 | TRIAD | `make release-combo IMU_ID=x002 GNSS_ID=x001 METHOD=TRIAD` |
+| 8 | X002 | X001 | Davenport | `make release-combo IMU_ID=x002 GNSS_ID=x001 METHOD=Davenport` |
+| 9 | X002 | X001 | SVD | `make release-combo IMU_ID=x002 GNSS_ID=x001 METHOD=SVD` |
+| 10 | X002 | X002 | TRIAD | `make release-combo IMU_ID=x002 GNSS_ID=x002 METHOD=TRIAD` |
+| 11 | X002 | X002 | Davenport | `make release-combo IMU_ID=x002 GNSS_ID=x002 METHOD=Davenport` |
+| 12 | X002 | X002 | SVD | `make release-combo IMU_ID=x002 GNSS_ID=x002 METHOD=SVD` |
+| 13 | X003 | X001 | TRIAD | `make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=TRIAD` |
+| 14 | X003 | X001 | Davenport | `make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=Davenport` |
+| 15 | X003 | X001 | SVD | `make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD` |
+| 16 | X003 | X002 | TRIAD | `make release-combo IMU_ID=x003 GNSS_ID=x002 METHOD=TRIAD` |
+| 17 | X003 | X002 | Davenport | `make release-combo IMU_ID=x003 GNSS_ID=x002 METHOD=Davenport` |
+| 18 | X003 | X002 | SVD | `make release-combo IMU_ID=x003 GNSS_ID=x002 METHOD=SVD` |
+
+The intended delivered pairings remain X001+X001, X002+X002 and X003+X002.
+Cross-pairings are deliberate diagnostic experiments: for example,
+X002+X001 isolates IMU noise, while X001+X002 isolates GNSS noise.
+
+### Synchronization: same coverage, not the same row count
+
+IMU and GNSS files must describe the same time window, but they should **not**
+have the same number of rows when their rates differ. The bundled files contain:
+
+| Sensor | Rows | Rate | Coverage |
+|---|---:|---:|---:|
+| IMU | 500,000 | 400 Hz | 1,250 s |
+| GNSS | 1,250 | 1 Hz | 1,250 measurement epochs |
+
+Before any task starts, `PYTHON/run_release.py` validates both layouts, infers
+their rates, and rejects a pair if their coverage differs by more than one GNSS
+epoch. For the bundled data it reports approximately 400 IMU samples per GNSS
+epoch. Truth must extend through the common sensor window.
+
+### Custom fixed-format release files
+
+Use the same large Tasks 1–7 release runner on replacement files with:
+
+```bash
+make release-custom \
+  IMU_FILE=/path/to/IMU_NEW.dat \
+  GNSS_FILE=/path/to/GNSS_NEW.csv \
+  TRUTH_FILE=/path/to/STATE_NEW.txt \
+  METHOD=TRIAD
+```
+
+The release script requires the following fixed formats:
+
+| File | Required format |
 |---|---|
-| `IMU_X001` + `GNSS_X002` | GNSS noise alone |
-| `IMU_X002` + `GNSS_X001` | IMU noise alone |
-| `IMU_X003` + `GNSS_X001` | IMU bias alone |
+| IMU `.dat` | Whitespace-separated, no header, at least 8 numeric columns: counter, time in seconds, gyro x/y/z delta-angle in rad, accelerometer x/y/z delta-velocity in m/s. Optional temperature/status columns may follow. PPS time resets are accepted. |
+| GNSS `.csv` | Header must contain `Posix_Time,X_ECEF_m,Y_ECEF_m,Z_ECEF_m,VX_ECEF_mps,VY_ECEF_mps,VZ_ECEF_mps`. Time is seconds and strictly increasing; position is true ECEF metres; velocity is ECEF m/s. Extra columns are allowed. |
+| Truth `.txt` | Whitespace-separated, comments may start with `#`, 12 numeric columns: counter, time s, ECEF position x/y/z m, ECEF velocity x/y/z m/s, quaternion `[qx,qy,qz,qw]` Body→ECEF. Time strictly increases and must cover the sensors. |
 
-Output is tagged by what you actually paired — `IMU_X002_GNSS_X001_TRIAD_task…` —
-so mixed runs never collide with the standard ones.
+If a new file uses different columns, delimiters, units, quaternion order or
+frames, use the configurable contract-driven pipeline described under
+[Using your own data](#using-your-own-data) instead of feeding it directly to
+the fixed-format release script.
+
+Output is tagged by the actual selection, for example
+`SVD_IMU_X003_GNSS_X001_task6_1_fused_vs_truth_ned.png`, so combinations do
+not overwrite one another.
 
 ### Where the plots go
 
 Flat in `results/`, named
-`<IMU>_<GNSS>_<METHOD>_task<N>_<subtask>_<name>.png` (and `.pdf`), e.g.
-`IMU_X001_GNSS_X001_TRIAD_task5_8_3_mixed_frames.png`.
+`<METHOD>_<IMU>_<GNSS>_task<N>_<subtask>_<name>.png` (and `.pdf`), e.g.
+`TRIAD_IMU_X001_GNSS_X001_task5_8_4_fused_state_NED.png`.
 Every plot carries its subtask number — full list in
 [docs/RELEASE_PLOTS.md](docs/RELEASE_PLOTS.md).
 
-Runs produce ~3 GB of `.mat`/`.npz` intermediates. To reclaim the space while
+Full runs produce large `.mat`/`.npz` intermediates. All 18 can require more
+than 20 GiB, so use `OUTPUT_DIR=/path/on/a/larger/disk` when necessary. To
+reclaim space while
 keeping every plot:
 
 ```bash
@@ -359,6 +445,11 @@ Always run `--validate-only` first. It reports the parsed row counts, sample rat
 | GNSS | CSV with header `Posix_Time, X_ECEF_m, Y_ECEF_m, Z_ECEF_m, VX_ECEF_mps, VY_ECEF_mps, VZ_ECEF_mps` | time s; position m (true ECEF); velocity m/s |
 | Truth *(optional)* | col 0 counter, col 1 time, cols 2–4 ECEF position, cols 5–7 ECEF velocity, cols 8–11 quaternion | time s; position m; velocity m/s; quaternion `[qx,qy,qz,qw]` Body→ECEF |
 
+For release plots, the output triplet is `<stem>.png` for universal viewing,
+`<stem>.fig` for direct MATLAB viewing, and `<stem>.mat` for underlying numeric
+arrays. MATLAB is required while generating the native FIG, but not merely to
+open the PNG.
+
 ### If your data differs — change these keys
 
 | Your situation | Set this in the `pipeline:` section |
@@ -569,15 +660,16 @@ If it does not report `.venv/bin/python`, run `make venv`.
 
 Run the pipeline through `PYTHON/run_pipeline.py`, which adds the package to the path itself. Importing `fusion_pipeline` directly needs the editable install from `make venv`.
 
-### `No module named 'scipy'` / `filterpy` when running tests
+### `No module named 'scipy'` / `filterpy` in a release run
 
-Those are legacy scripts under `PYTHON/src/`, not part of Tasks 1–7. `pytest` is scoped to `PYTHON/tests/pipeline` and does not need them. To run the legacy scripts anyway:
+The configurable canonical pipeline does not need these packages, but the full
+release plot implementation does. Install the release extra:
 
 ```bash
-.venv/bin/python -m pip install -e '.[legacy]'
+.venv/bin/python -m pip install -e '.[release]'
 ```
 
-Note `filterpy` may fail to build on recent Python versions; it is not required by the canonical pipeline.
+`make venv` performs this installation automatically.
 
 ### The GUI does not open
 
@@ -599,6 +691,7 @@ PYTHON/fusion_pipeline/pipeline.py    Tasks 1-7 and the run orchestration
 PYTHON/fusion_pipeline/figures.py     figure generation, naming and indexing
 PYTHON/fusion_pipeline/cli.py         command-line interface
 PYTHON/run_pipeline.py                stable Python entry point
+PYTHON/run_release.py                 all 18 full-rate release combinations
 MATLAB/+fusion/                       separate MATLAB task functions
 MATLAB/run_pipeline.m                 MATLAB single-method runner
 MATLAB/run_all_methods.m              MATLAB all-method comparison

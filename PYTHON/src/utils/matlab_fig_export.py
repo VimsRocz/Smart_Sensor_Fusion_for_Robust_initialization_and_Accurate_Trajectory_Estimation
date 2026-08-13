@@ -10,6 +10,38 @@ _ENG = None  # lazy-initialised MATLAB engine
 WRITTEN: list[str] = []
 
 
+def _write_generic_mat_companion(fig, path: Path) -> None:
+    """Write plotted line data when a caller did not provide a richer MAT."""
+    if path.exists():
+        return
+    try:
+        import numpy as np
+        from scipy.io import savemat
+
+        data: dict[str, object] = {}
+        for axes_index, axes in enumerate(fig.get_axes(), start=1):
+            prefix = f"ax{axes_index}"
+            data[f"{prefix}_title"] = np.array(axes.get_title(), dtype=object)
+            data[f"{prefix}_xlabel"] = np.array(axes.get_xlabel(), dtype=object)
+            data[f"{prefix}_ylabel"] = np.array(axes.get_ylabel(), dtype=object)
+            for line_index, line in enumerate(axes.get_lines(), start=1):
+                line_prefix = f"{prefix}_line{line_index}"
+                data[f"{line_prefix}_x"] = np.asarray(line.get_xdata())
+                data[f"{line_prefix}_y"] = np.asarray(line.get_ydata())
+                label = line.get_label()
+                if label and not label.startswith("_"):
+                    data[f"{line_prefix}_label"] = np.array(label, dtype=object)
+        if not data:
+            data["plot_note"] = np.array(
+                "Rendered plot is stored in the same-stem PNG and native FIG.",
+                dtype=object,
+            )
+        savemat(path, data, do_compression=True)
+        print(f"[MAT ] {path} generic plotted-data companion")
+    except Exception as exc:  # pragma: no cover - optional SciPy/backend path
+        print(f"[WARN] could not write generic MAT companion {path}: {exc}")
+
+
 def _matlab_engine():
     global _ENG
     if _ENG is None:
@@ -18,7 +50,10 @@ def _matlab_engine():
             _ENG = matlab.engine.start_matlab()
             _ENG.close('all', nargout=0)
         except Exception as e:  # pragma: no cover - environment dependent
-            print(f"[WARN] MATLAB engine unavailable: {e}")
+            print(
+                f"[INFO] MATLAB Engine unavailable ({e}); the release runner "
+                "will use MATLAB batch export for native FIG companions."
+            )
             _ENG = False
     return _ENG
 
@@ -28,7 +63,8 @@ def _mpl_axes_to_matlab(ax, eng):
 
     # Lines
     for line in ax.get_lines():
-        x = line.get_xdata(); y = line.get_ydata()
+        x = line.get_xdata()
+        y = line.get_ydata()
         if len(x) and len(y):
             mx = matlab.double([float(v) for v in x])
             my = matlab.double([float(v) for v in y])
@@ -45,11 +81,20 @@ def _mpl_axes_to_matlab(ax, eng):
             eng.hold('on', nargout=0)
 
     # Labels/Title/Legend
-    xl = ax.get_xlabel() or ""; yl = ax.get_ylabel() or ""; tl = ax.get_title() or ""
-    if xl: eng.xlabel(xl, nargout=0)
-    if yl: eng.ylabel(yl, nargout=0)
-    if tl: eng.title(tl, nargout=0)
-    labels = [l.get_label() for l in ax.get_lines() if l.get_label() and not l.get_label().startswith('_')]
+    xl = ax.get_xlabel() or ""
+    yl = ax.get_ylabel() or ""
+    tl = ax.get_title() or ""
+    if xl:
+        eng.xlabel(xl, nargout=0)
+    if yl:
+        eng.ylabel(yl, nargout=0)
+    if tl:
+        eng.title(tl, nargout=0)
+    labels = [
+        line.get_label()
+        for line in ax.get_lines()
+        if line.get_label() and not line.get_label().startswith("_")
+    ]
     if labels:
         try:
             eng.legend(labels, nargout=0)
@@ -89,6 +134,8 @@ def save_matlab_fig(fig, out_stem: str) -> Path | None:
         except Exception as exc:  # pragma: no cover - backend dependent
             print(f"[WARN] could not write {target}: {exc}")
 
+    _write_generic_mat_companion(fig, stem.with_suffix(".mat"))
+
     eng = _matlab_engine()
     if not eng:
         return None
@@ -120,7 +167,8 @@ def save_all_matplotlib_as_fig(out_dir: str, prefix: str = "") -> None:
         print("[SKIP] MATLAB engine not available; .fig export skipped.")
         return
 
-    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
     for num in plt.get_fignums():
         fig = plt.figure(num)
         supt = fig._suptitle.get_text() if getattr(fig, '_suptitle', None) else f"figure_{num}"

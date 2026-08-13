@@ -26,6 +26,16 @@ tests = [
     "ruff>=0.9",
 ]
 
+# Dependencies imported by the full-rate release plot implementation.
+release = [
+  "scipy",
+  "pandas",
+  "rich",
+  "filterpy",
+  "plotly>=5",
+  "kaleido",
+]
+
 legacy = [
   "scipy",
   "pandas",

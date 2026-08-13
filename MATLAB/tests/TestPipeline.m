@@ -121,5 +121,24 @@ classdef TestPipeline < matlab.unittest.TestCase
             end
             testCase.verifyEmpty(find(index.status == "not_implemented", 1));
         end
+
+        function releaseExporterWritesDirectlyOpenableNativeFig(testCase)
+            pngPath = fullfile(testCase.OutputRoot, 'release_plot.png');
+            fig = figure('Visible','off');
+            plot(0:0.1:1, sin(0:0.1:1));
+            title('Release FIG export test');
+            exportgraphics(fig, pngPath);
+            close(fig);
+
+            count = export_release_figures(testCase.OutputRoot);
+            figPath = fullfile(testCase.OutputRoot, 'release_plot.fig');
+            testCase.verifyEqual(count, 1);
+            testCase.verifyTrue(isfile(figPath));
+
+            reopened = openfig(figPath, 'invisible');
+            closeCleanup = onCleanup(@() close(reopened));
+            testCase.verifyTrue(isgraphics(reopened, 'figure'));
+            clear closeCleanup
+        end
     end
 end

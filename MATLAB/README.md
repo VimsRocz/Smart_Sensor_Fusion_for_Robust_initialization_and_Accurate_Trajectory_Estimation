@@ -25,6 +25,26 @@ r = run_pipeline( ...
 
 Requires R2021a or newer (`readtable`, `readmatrix`, `tiledlayout`, `exportgraphics`, `jsonencode`). No third-party toolbox is used, and nothing from the Statistics or Aerospace toolboxes is called.
 
+## Opening Python release plots directly
+
+`PYTHON/run_release.py` automatically calls
+`export_release_figures.m` after plotting. It creates a genuine native
+same-stem `.fig` beside every PNG and audits that the counts match. The FIG
+contains the exact rendered result, opens by double-clicking or after upload,
+and does not require running `show_task_plot.m`. A same-stem `.mat` holds
+the plotted numeric data for plots that need further analysis.
+
+If MATLAB is installed outside `PATH`, invoke the release Make target with
+`MATLAB_BIN=/absolute/path/to/matlab`. To process existing PNG results
+without repeating the fusion computation:
+
+```bash
+make release-figs MATLAB_BIN=/absolute/path/to/matlab
+```
+
+MATLAB itself is required during FIG creation because MAT and FIG are different
+file formats; renaming a MAT file does not produce a loadable figure.
+
 ## Shared structure with Python
 
 `+fusion/catalog.m` mirrors `PYTHON/fusion_pipeline/catalog.py`. Both define the same seven tasks, the same subtask numbering, the same output directory names, and the same figure slugs, frames and dataset tags. **A change to one catalog must be made in the other**, otherwise the two implementations will disagree about where files go and what they are called.

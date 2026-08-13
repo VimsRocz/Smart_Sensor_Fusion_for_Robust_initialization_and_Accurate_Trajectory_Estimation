@@ -41,18 +41,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from filterpy.kalman import KalmanFilter
-import datetime
 
-from .scripts.plot_utils import save_plot as _legacy_save_plot, plot_attitude
 from utils.plot_save import save_plot, task_summary
 from utils.plot_saver import save_png_and_mat
 from paths import (
     imu_path as _imu_path_helper,
     gnss_path as _gnss_path_helper,
-    ensure_results_dir as _ensure_results,
     normalize_gnss_headers,
-    PY_RES_DIR,
 )
 from task1_cache import save_task1_artifacts
 from task2_plot import save_task2_summary_png, task2_measure_body_vectors
@@ -80,14 +75,7 @@ from .gnss_imu_fusion.init_vectors import (
 )
 from .gnss_imu_fusion.axis_map import sanity_check_tilt
 from .gnss_imu_fusion.axis_map_auto import choose_C_bs_from_static
-from .gnss_imu_fusion.plots import (
-    save_zupt_variance,
-    save_euler_angles,
-    save_residual_plots,
-    save_attitude_over_time,
-    save_velocity_profile,
-    plot_all_methods,
-)
+from .gnss_imu_fusion.plots import save_zupt_variance
 from .gnss_imu_fusion.init import compute_reference_vectors, measure_body_vectors
 from .gnss_imu_fusion.integration import integrate_trajectory
 from .gnss_imu_fusion.kalman_filter import (
@@ -2444,8 +2432,10 @@ def main():
                 kf.update(z)
             else:
                 # Use only position block for this update
-                H_pos = kf.H.copy(); H_pos[3:6, :] = 0.0
-                R_pos = kf.R.copy(); R_pos[3:6, 3:6] = np.eye(3) * 1e6
+                H_pos = kf.H.copy()
+                H_pos[3:6, :] = 0.0
+                R_pos = kf.R.copy()
+                R_pos[3:6, 3:6] = np.eye(3) * 1e6
                 kf.update(z, H=H_pos, R=R_pos)
             # Optional post-update print (periodic)
             if getattr(args, 'kf_vel_periodic', False):
@@ -3269,27 +3259,10 @@ def main():
             method=method,
         )
 
-        euler_deg = np.rad2deg(euler_all[method])
-        # save_euler_angles: removed - duplicates the Task 6 attitude figures
-
-        pos_f = interpolate_series(gnss_time, imu_time, fused_pos[method])
-        vel_f = interpolate_series(gnss_time, imu_time, fused_vel[method])
         # Removed: task5_9_1/5_9_2 residuals and task5_9_4 velocity profile.
         # They compared the fused solution against GNSS on the GNSS grid, which
         # duplicates the Task 7.5 fused-minus-truth figures and is not
         # meaningful across all three methods.
-
-        # save_attitude_over_time: removed - duplicates the Task 6 attitude figures
-
-        plot_all_methods(
-            imu_time,
-            gnss_pos_ned_interp,
-            gnss_vel_ned_interp,
-            gnss_acc_ned_interp,
-            fused_pos,
-            fused_vel,
-            fused_acc,
-        )
 
         # Task 7: Attitude comparison — quaternion components (Truth vs Estimated)
         # Saves under the Task 7 naming convention if truth data is available.
@@ -3297,8 +3270,6 @@ def main():
             try:
                 import numpy as _np
                 from scipy.spatial.transform import Rotation as _R
-                from naming import plot_path as _plot_path
-                from utils.matlab_fig_export import save_matlab_fig as _save_fig
 
                 # Load truth times and quaternions
                 truth_arr = _np.loadtxt(truth_file)

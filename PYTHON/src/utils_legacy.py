@@ -269,7 +269,7 @@ def save_plot_mat(fig: Figure, filename: str) -> None:
 
 
 def save_plot_fig(fig: Figure, filename: str) -> None:
-    """Save matplotlib figure *fig* in MATLAB ``.fig`` format.
+    """Save matplotlib figure *fig* as a genuine native MATLAB ``.fig``.
 
     Parameters
     ----------
@@ -278,14 +278,19 @@ def save_plot_fig(fig: Figure, filename: str) -> None:
     filename : str
         Path of the ``.fig`` file.
 
-    Notes
-    -----
-    The ``.fig`` format used here is a simple MAT-file containing the
-    exported line data, matching :func:`save_plot_mat`.  Opening the
-    file in MATLAB requires loading the variables and replotting them.
+    A MAT file renamed to ``.fig`` is not a MATLAB figure and cannot be opened
+    with ``openfig``. Native serialization requires MATLAB; callers receive a
+    clear error instead of a misleading, unloadable file when it is absent.
     """
+    from utils.matlab_fig_export import save_matlab_fig
 
-    save_plot_mat(fig, filename)
+    target = Path(filename)
+    written = save_matlab_fig(fig, str(target.with_suffix("")))
+    if written is None:
+        raise RuntimeError(
+            "Native MATLAB .fig export requires MATLAB Engine or the automatic "
+            "MATLAB batch export in PYTHON/run_release.py."
+        )
 
 
 def save_png_and_mat(fig: Figure, filename: str, **savefig_kwargs) -> tuple[Path, Path]:

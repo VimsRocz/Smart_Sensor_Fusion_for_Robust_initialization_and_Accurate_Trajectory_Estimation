@@ -2,6 +2,14 @@
 
 The pipeline validates the complete input set before Task 1 writes anything. Validation errors name the file, the violated rule, and usually the row or column context.
 
+The large release runner (`PYTHON/run_release.py`) performs an additional
+fixed-format preflight for its 18 bundled combinations. It requires compatible
+time coverage, not equal row counts: a 400 Hz IMU naturally has 400 rows for
+each 1 Hz GNSS epoch. It rejects an IMU/GNSS pair whose inferred coverage
+differs by more than one GNSS epoch, and it requires supplied truth to extend
+through the common sensor window. Its exact replacement-file format is listed
+in the root [README](../README.md#custom-fixed-format-release-files).
+
 **Every layout below is a default, not a requirement.** If your files are formatted differently, declare the difference in the `pipeline:` section of your configuration instead of rewriting the data. Start from `config/pipeline_custom_data_template.yaml`, and print the live contract at any time with:
 
 ```bash

@@ -4,13 +4,7 @@
 VENV := $(CURDIR)/.venv
 PY := $(shell if [ -x "$(VENV)/bin/python" ]; then echo "$(VENV)/bin/python"; else command -v python3 || echo python3; fi)
 RUN = $(PY) PYTHON/run_pipeline.py
-# The release pipeline: produces the Task 1-7 plots in results/ with the
-# <IMU>_<GNSS>_<METHOD>_task<N>_<name> naming used by the released version.
-RELEASE = $(PY) PYTHON/src/GNSS_IMU_Fusion.py
-TASK7 = $(PY) PYTHON/src/task7_ned_residuals_plot.py
-IMU ?= DATA/IMU/IMU_X001.dat
-GNSS ?= DATA/GNSS/GNSS_X001.csv
-TRUTH ?= DATA/Truth/STATE_X001.txt
+RELEASE_RUN = $(PY) PYTHON/run_release.py
 SMALL = config/pipeline_small.yaml
 FULL = config/pipeline_x001_full.yaml
 
@@ -19,6 +13,14 @@ FULL = config/pipeline_x001_full.yaml
 METHOD ?= TRIAD
 # Which bundled dataset a `make run-dataset` call uses.
 DATASET ?= x003
+# Release cross-product selectors: 3 IMUs x 2 GNSS files x 3 methods.
+IMU_ID ?= x001
+GNSS_ID ?= x001
+TRUTH_FILE ?= DATA/Truth/STATE_X001.txt
+OUTPUT_DIR ?= results
+RELEASE_TRUTH = $(if $(filter 1 yes true,$(NO_TRUTH)),--no-truth,--truth "$(TRUTH_FILE)")
+RELEASE_MATLAB = $(if $(strip $(MATLAB_BIN)),--matlab-bin "$(MATLAB_BIN)") \
+                 $(if $(filter 1 yes true,$(ALLOW_MISSING_FIG)),--allow-missing-fig)
 
 .PHONY: help venv deps test smoke docs doctor gui \
         list-tasks contract validate validate-full \
@@ -27,8 +29,8 @@ DATASET ?= x003
         run-x002-no-truth run-everything clean-results \
         list-datasets run-dataset run-x001 run-x002 run-x003 \
         run-x001-small run-x002-small run-x003-small \
-        release release-all release-triad release-davenport release-svd \
-        release-methods release-datasets release-everything release-mix clean-heavy
+        release release-combo release-18 release-list release-check release-figs \
+        release-custom clean-heavy
 
 # ---------------------------------------------------------------------------
 help:
@@ -39,13 +41,15 @@ help:
 	@echo "  make doctor               show which interpreter and packages are found"
 	@echo ""
 	@echo "Release Task 1-7 plots  ->  results/"
-	@echo "  make release                            x001 + TRIAD (defaults)"
-	@echo "  make release DATASET=x002 METHOD=SVD    any dataset x any method"
-	@echo "  make release-methods DATASET=x002       all 3 methods, one dataset"
-	@echo "  make release-datasets METHOD=TRIAD      one method, all 3 datasets"
-	@echo "  make release-everything                 all 3 methods x all 3 datasets"
-	@echo "     datasets: x001 (has truth) | x002 | x003     methods: TRIAD|Davenport|SVD"
-	@echo "  make release-mix IMU_FILE=... GNSS_FILE=...   pair any IMU with any GNSS"
+	@echo "  make release                            X001 IMU + X001 GNSS + TRIAD"
+	@echo "  make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD"
+	@echo "  make release-18                         all 18 IMU x GNSS x method runs"
+	@echo "  make release-list                       list the exact 18 combinations"
+	@echo "  make release-check IMU_ID=x002 GNSS_ID=x001 METHOD=Davenport"
+	@echo "  make release-figs MATLAB_BIN=/path/to/matlab   FIGs for existing PNGs"
+	@echo "  make release-custom IMU_FILE=... GNSS_FILE=... METHOD=TRIAD"
+	@echo "  Add NO_TRUTH=1 to omit Tasks 6-7 truth comparisons."
+	@echo "  MATLAB is required for native .fig output; set MATLAB_BIN if not on PATH."
 	@echo ""
 	@echo "Discovery"
 	@echo "  make list-tasks           print every task, subtask and figure"
@@ -85,7 +89,7 @@ help:
 venv:
 	python3 -m venv $(VENV)
 	$(VENV)/bin/python -m pip install --upgrade pip setuptools wheel
-	$(VENV)/bin/python -m pip install -e '.[tests]'
+	$(VENV)/bin/python -m pip install -e '.[tests,release]'
 	@echo ""
 	@echo "Done. Run targets now use $(VENV)/bin/python automatically:"
 	@echo "    make run-all"
@@ -98,6 +102,9 @@ doctor:
 	@$(PY) -c "import sys; print('version              :', sys.version.split()[0]); print('executable           :', sys.executable)"
 	@$(PY) -c "import numpy, matplotlib, yaml; print('numpy                :', numpy.__version__); print('matplotlib           :', matplotlib.__version__); print('pyyaml               : ok')" \
 	  || echo "MISSING PACKAGES     : run 'make venv'"
+	@$(PY) -c "import scipy, pandas, filterpy, rich, plotly; print('release dependencies : ok')" \
+	  || echo "RELEASE PACKAGES     : missing (run 'make venv')"
+	@$(PY) -c "import sys; sys.path.insert(0, 'PYTHON'); from run_release import find_matlab; p=find_matlab(); print('MATLAB executable    :', p or 'NOT FOUND (required for native .fig)')"
 	@$(PY) -c "import fusion_pipeline; print('fusion_pipeline      : importable')" 2>/dev/null \
 	  || echo "fusion_pipeline      : not installed (run 'make venv'); run_pipeline.py still works"
 
@@ -117,55 +124,34 @@ docs:
 	$(PY) scripts/generate_task_docs.py
 
 # ---------------------------------------------------------------------------
-# Release Task 1-7 plots — pick any dataset and any method.
+# Release Task 1-7 plots — pick any of 3 IMUs x 2 GNSS files x 3 methods.
 #
-#   make release                              x001 + TRIAD (defaults)
-#   make release DATASET=x002 METHOD=SVD      any single combination
-#   make release-methods DATASET=x002         all 3 methods, one dataset
-#   make release-datasets METHOD=TRIAD        one method, all 3 datasets
-#   make release-everything                   all 3 methods x all 3 datasets
-DATASET ?= x001
-RELEASE_SH = bash scripts/run_release.sh
+#   make release
+#   make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD
+#   make release-18
+# The Python runner validates fixed-format columns and synchronized time
+# coverage before invoking the full-rate Tasks 1-7 pipeline.
 
-release:
-	$(RELEASE_SH) $(DATASET) $(METHOD)
+release release-combo:
+	$(RELEASE_RUN) --imu "$(IMU_ID)" --gnss "$(GNSS_ID)" --method "$(METHOD)" \
+	  $(RELEASE_TRUTH) $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
 
-release-triad:
-	$(RELEASE_SH) $(DATASET) TRIAD
+release-18:
+	$(RELEASE_RUN) --all $(RELEASE_TRUTH) $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
 
-release-davenport:
-	$(RELEASE_SH) $(DATASET) Davenport
+release-list:
+	$(RELEASE_RUN) --list
 
-release-svd:
-	$(RELEASE_SH) $(DATASET) SVD
+release-check:
+	$(RELEASE_RUN) --imu "$(IMU_ID)" --gnss "$(GNSS_ID)" --method "$(METHOD)" \
+	  $(RELEASE_TRUTH) --check-only
 
-# All three methods on one dataset.
-release-methods:
-	$(RELEASE_SH) $(DATASET) TRIAD
-	$(RELEASE_SH) $(DATASET) Davenport
-	$(RELEASE_SH) $(DATASET) SVD
+release-figs:
+	$(RELEASE_RUN) --export-figs-only $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
 
-# One method on all three datasets.
-release-datasets:
-	$(RELEASE_SH) x001 $(METHOD)
-	$(RELEASE_SH) x002 $(METHOD)
-	$(RELEASE_SH) x003 $(METHOD)
-
-# Everything: 3 methods x 3 datasets.
-release-everything:
-	$(MAKE) release-methods DATASET=x001
-	$(MAKE) release-methods DATASET=x002
-	$(MAKE) release-methods DATASET=x003
-
-# Cross-pair any IMU with any GNSS (all files share one time base).
-#   make release-mix IMU_FILE=DATA/IMU/IMU_X002.dat GNSS_FILE=DATA/GNSS/GNSS_X001.csv
-#   make release-mix IMU_FILE=... GNSS_FILE=... TRUTH_FILE=DATA/Truth/STATE_X001.txt
-release-mix:
-	IMU_FILE="$(IMU_FILE)" GNSS_FILE="$(GNSS_FILE)" TRUTH_FILE="$(TRUTH_FILE)" \
-	  $(RELEASE_SH) mix $(METHOD)
-
-# Backwards-compatible alias.
-release-all: release-methods
+release-custom:
+	$(RELEASE_RUN) --imu "$(IMU_FILE)" --gnss "$(GNSS_FILE)" --method "$(METHOD)" \
+	  $(RELEASE_TRUTH) $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
 
 # ---------------------------------------------------------------------------
 list-tasks:

@@ -4,39 +4,49 @@ This is **the** plot set. It is what the released version produced and what the
 project expects. Everything lands flat in `results/`, named:
 
 ```text
-<IMU-stem>_<GNSS-stem>_<METHOD>_task<N>_<name>.png    (and .pdf)
+<METHOD>_<IMU-stem>_<GNSS-stem>_task<N>_<name>.png    (and .pdf)
 ```
 
-for example `IMU_X001_GNSS_X001_TRIAD_task5_results_TRIAD.png`.
+for example `TRIAD_IMU_X001_GNSS_X001_task5_8_4_fused_state_NED.png`.
 
 ## How to produce them
 
 ```bash
-make release                 # Tasks 1-7, TRIAD
-make release METHOD=SVD      # or Davenport
-make release-all             # all three methods
+make release                                      # X001 + X001 + TRIAD
+make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD
+make release-18                                   # all 18 combinations
+make release-list                                 # list without running
 ```
 
-Any dataset:
+Any replacement files in the documented fixed format:
 
 ```bash
-make release IMU=DATA/IMU/IMU_X003.dat GNSS=DATA/GNSS/GNSS_X002.csv TRUTH= METHOD=TRIAD
+make release-custom \
+  IMU_FILE=/path/to/IMU_NEW.dat \
+  GNSS_FILE=/path/to/GNSS_NEW.csv \
+  TRUTH_FILE=/path/to/STATE_NEW.txt \
+  METHOD=TRIAD
 ```
 
 Directly:
 
 ```bash
-.venv/bin/python PYTHON/src/GNSS_IMU_Fusion.py \
-  --imu-file DATA/IMU/IMU_X001.dat \
-  --gnss-file DATA/GNSS/GNSS_X001.csv \
-  --truth-file DATA/Truth/STATE_X001.txt \
-  --method TRIAD
+.venv/bin/python PYTHON/run_release.py --imu x001 --gnss x001 --method TRIAD
 ```
+
+The runner validates file structure and synchronized time coverage before it
+invokes the full-rate Tasks 1–7 implementation. IMU and GNSS row counts are
+expected to differ because their sample rates differ.
+
+It also invokes MATLAB automatically and verifies that every PNG has a genuine,
+directly openable same-stem `.fig`. Set `MATLAB_BIN=/path/to/matlab` on the Make
+command if MATLAB is installed but not on `PATH`. Existing PNG results can be
+converted without rerunning fusion using `make release-figs MATLAB_BIN=...`.
 
 Requires the legacy dependencies:
 
 ```bash
-.venv/bin/python -m pip install scipy pandas filterpy rich plotly kaleido cartopy
+.venv/bin/python -m pip install -e '.[release]'
 ```
 
 ## The plots, task by task
@@ -81,9 +91,11 @@ logs (`Subtask 4.13 Validate and Plot Data`, `Subtask 5.8 Plotting Results`, …
 Figure **titles** carry the same numbers, e.g. `Task 5.8.3 – TRIAD – Mixed
 Frames (Position NED, Velocity ECEF, Acceleration Body)`.
 
-Each plot is written as **both `.png` and `.pdf`**, plus a `.mat` companion
-holding the plotted arrays. A native MATLAB `.fig` is also written when the
-MATLAB engine is available.
+Each plot is written as **`.png` and native MATLAB `.fig`**, plus a `.mat`
+companion holding the plotted arrays; most plotting paths also write PDF. The FIG stores the exact rendered
+plot inside a native MATLAB figure, so it opens after upload without running a
+redraw script. The release command fails before computation if MATLAB cannot be
+found, unless the user explicitly supplies `ALLOW_MISSING_FIG=1`.
 
 ## Two fixes that were needed to produce these
 
