@@ -1,0 +1,96 @@
+name: Export native MATLAB FIG files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    name: ${{ matrix.imu }} + ${{ matrix.gnss }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - imu: x001
+            gnss: x001
+          - imu: x001
+            gnss: x002
+          - imu: x002
+            gnss: x001
+          - imu: x002
+            gnss: x002
+          - imu: x003
+            gnss: x001
+          - imu: x003
+            gnss: x002
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install release dependencies
+        run: python -m pip install --disable-pip-version-check -e '.[release]'
+
+      - name: Set up MATLAB
+        uses: matlab-actions/setup-matlab@v3
+
+      - name: Run all three released methods and export native FIGs
+        env:
+          MPLBACKEND: Agg
+        run: |
+          for method in TRIAD Davenport SVD; do
+            python PYTHON/run_release.py \
+              --imu "${{ matrix.imu }}" \
+              --gnss "${{ matrix.gnss }}" \
+              --method "$method" \
+              --truth DATA/Truth/STATE_X001.txt \
+              --output results
+
+            # The native FIG and its preview are the artifact deliverables.
+            # Large numeric companions are reproducible and are removed here
+            # so each matrix job stays comfortably within runner disk limits.
+            find results -type f \( -name '*.mat' -o -name '*.npz' -o -name '*.pdf' \) -delete
+          done
+
+      - name: Audit every FIG with MATLAB openfig
+        uses: matlab-actions/run-command@v3
+        with:
+          command: |
+            root = fullfile(pwd, "results");
+            pngs = dir(fullfile(root, "**", "*.png"));
+            figs = dir(fullfile(root, "**", "*.fig"));
+            assert(~isempty(pngs), "No PNG plots were generated.");
+            if numel(figs) ~= numel(pngs)
+                error("release:FigCountMismatch", ...
+                    "Expected one native FIG per PNG; found %d FIG and %d PNG.", ...
+                    numel(figs), numel(pngs));
+            end
+            for k = 1:numel(figs)
+                figPath = fullfile(figs(k).folder, figs(k).name);
+                h = openfig(figPath, "invisible");
+                close(h);
+            end
+            fprintf("Validated %d/%d native FIG files with MATLAB openfig.\n", ...
+                numel(figs), numel(pngs));
+
+      - name: Upload native MATLAB figures
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-fig-${{ matrix.imu }}-${{ matrix.gnss }}
+          path: |
+            results/**/*.fig
+            results/**/*.png
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
