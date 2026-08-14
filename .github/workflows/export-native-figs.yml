@@ -47,10 +47,7 @@ jobs:
       - name: Install release dependencies
         run: python -m pip install --disable-pip-version-check -e '.[release]'
 
-      - name: Set up MATLAB
-        uses: matlab-actions/setup-matlab@v3
-
-      - name: Run all three released methods and export native FIGs
+      - name: Run all three released methods
         env:
           MPLBACKEND: Agg
         run: |
@@ -60,19 +57,24 @@ jobs:
               --gnss "${{ matrix.gnss }}" \
               --method "$method" \
               --truth DATA/Truth/STATE_X001.txt \
+              --defer-fig \
               --output results
 
-            # The native FIG and its preview are the artifact deliverables.
             # Large numeric companions are reproducible and are removed here
             # so each matrix job stays comfortably within runner disk limits.
             find results -type f \( -name '*.mat' -o -name '*.npz' -o -name '*.pdf' \) -delete
           done
 
-      - name: Audit every FIG with MATLAB openfig
+      - name: Set up MATLAB
+        uses: matlab-actions/setup-matlab@v3
+
+      - name: Export and audit every native FIG with MATLAB
         uses: matlab-actions/run-command@v3
         with:
           command: |
             root = fullfile(pwd, "results");
+            addpath(fullfile(pwd, "MATLAB"));
+            export_release_figures(root);
             pngs = dir(fullfile(root, "**", "*.png"));
             figs = dir(fullfile(root, "**", "*.fig"));
             assert(~isempty(pngs), "No PNG plots were generated.");
