@@ -2,6 +2,11 @@ name: Export native MATLAB FIG files
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/restructure-task-pipeline
+    paths:
+      - .github/workflows/export-native-figs.yml
 
 permissions:
   contents: read
