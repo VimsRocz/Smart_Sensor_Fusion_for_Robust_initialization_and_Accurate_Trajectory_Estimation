@@ -87,10 +87,11 @@ without truth comparisons.
 
 When MATLAB is available, every release plot gets a native same-stem `.fig`
 file during the run. The runner calls MATLAB automatically after plotting,
-embeds the exact rendered image in a native MATLAB figure, and audits the
-result count. You can double-click the `.fig` locally or upload it to MATLAB
-and open it directly—no redraw script is required. The same-stem `.mat`
-companion contains the numeric plot data.
+reconstructs real axes, lines, scatter points, bars and image objects from the
+same-stem plot-data `.mat`, and audits the result count. You can double-click
+the `.fig`, use `openfig`, zoom, pan, inspect data tips and edit plot properties
+without a redraw script. The `.mat` is deliberately retained as the numeric
+data companion; it is not a figure file.
 
 Native FIG serialization is a MATLAB feature; a `.mat` file renamed to `.fig`
 is not valid and will not open. MATLAB must therefore be installed on the
@@ -106,6 +107,14 @@ the fusion filters:
 
 ```bash
 make release-figs MATLAB_BIN=/path/to/matlab
+```
+
+The canonical Task 1–7 CLI also converts automatically. Use `--fig on` when a
+missing FIG must fail the run instead of being deferred:
+
+```bash
+.venv/bin/python PYTHON/main.py --dataset x001_small --method ALL --fig on \
+  --matlab-bin /absolute/path/to/matlab
 ```
 
 Release commands automatically use deferred mode, so they compute successfully
@@ -466,8 +475,10 @@ Always run `--validate-only` first. It reports the parsed row counts, sample rat
 
 For release plots, the output is `<stem>.png` for universal viewing,
 `<stem>.pdf` for publication, and `<stem>.mat` for underlying numeric arrays.
-When MATLAB is available, `<stem>.fig` is also written during the run; without
-MATLAB it is created later by the bundled conversion command.
+When MATLAB is available, the default `--fig auto` mode also writes an
+interactive `<stem>.fig`; `--fig on` requires it, and `--fig off` disables only
+FIG conversion. Without MATLAB it is created later by the bundled conversion
+command without rerunning Tasks 1–7.
 
 ### If your data differs — change these keys
 

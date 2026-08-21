@@ -45,9 +45,10 @@ Requires R2021a or newer (`readtable`, `readmatrix`, `tiledlayout`, `exportgraph
 `PYTHON/run_release.py` automatically calls
 `export_release_figures.m` after plotting. It creates a genuine native
 same-stem `.fig` beside every PNG and audits that the counts match. The FIG
-contains the exact rendered result, opens by double-clicking or after upload,
-and does not require running `show_task_plot.m`. A same-stem `.mat` holds
-the plotted numeric data for plots that need further analysis.
+contains reconstructed axes and plotted data objects, opens by double-clicking
+or with `openfig`, and supports MATLAB zoom, pan, data tips and property edits.
+A same-stem `.mat` separately holds the plotted numeric data; it is not a FIG
+and should not be renamed.
 
 If MATLAB is installed outside `PATH`, invoke the release Make target with
 `MATLAB_BIN=/absolute/path/to/matlab`. To process existing PNG results
@@ -82,10 +83,19 @@ figCtx = fusion.figures('skip', figCtx, taskNumber, figureSlug, reason);
          fusion.figures('write_index', figCtx, runDir);
 ```
 
-`'save'` stamps the identifying title and footer onto the figure, writes the
-PNG and native `.fig` under the catalog filename while the handle is live,
-then closes it and records both artifacts. Task functions therefore never call
-`exportgraphics`, `savefig`, `sgtitle` or `close` themselves.
+`'save'` stamps the identifying title and footer onto the figure, writes PNG,
+PDF, plotted-data MAT and native `.fig` under the catalog filename while the
+handle is live, then closes it and records every artifact. A MATLAB run now
+raises an error if its FIG cannot be saved instead of silently leaving only a
+MAT file. Task functions therefore never call `exportgraphics`, `savefig`,
+`sgtitle` or `close` themselves.
+
+Open and explore any saved figure directly:
+
+```matlab
+fig = openfig('path/to/figure.fig', 'visible');
+zoom(fig, 'on');
+```
 
 ## Figure index and coverage
 

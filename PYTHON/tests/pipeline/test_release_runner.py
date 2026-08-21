@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
+import json
 import subprocess
 from pathlib import Path
 
 import pytest
 import run_release
+from fusion_pipeline import matlab_fig
 
 from run_release import (
     Combination,
@@ -136,8 +139,10 @@ def test_release_make_targets_allow_missing_local_matlab(target: str) -> None:
 def test_deferred_bundle_is_self_contained(tmp_path: Path) -> None:
     prepare_deferred_fig_bundle(tmp_path)
     assert (tmp_path / "export_release_figures.m").is_file()
+    assert (tmp_path / "export_python_figure.m").is_file()
     instructions = (tmp_path / "CREATE_NATIVE_FIGS.txt").read_text(encoding="utf-8")
     assert "export_release_figures(pwd)" in instructions
+    assert "zoom, pan and data tips" in instructions
 
 
 def test_native_fig_export_audits_every_png(
@@ -147,10 +152,50 @@ def test_native_fig_export_audits_every_png(
     nested = tmp_path / "nested"
     nested.mkdir()
     (nested / "two.png").write_bytes(b"png")
+    index_payload = {
+        "figures": [
+            {
+                "status": "written",
+                "filename": "two.png",
+                "path": str(nested / "two.png"),
+                "task_directory": "nested",
+                "artifacts": {"fig": None, "fig_status": "deferred"},
+            }
+        ],
+        "native_figures_written": 0,
+        "native_figures_deferred": 1,
+    }
+    (tmp_path / "figures_index.json").write_text(
+        json.dumps(index_payload), encoding="utf-8"
+    )
+    with (tmp_path / "figures_index.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=("status", "filename", "path", "task_directory", "fig_filename", "fig_status"),
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "status": "written",
+                "filename": "two.png",
+                "path": nested / "two.png",
+                "task_directory": "nested",
+                "fig_filename": "",
+                "fig_status": "deferred",
+            }
+        )
 
     def fake_matlab_run(*_args, **_kwargs):
         for png in tmp_path.rglob("*.png"):
             png.with_suffix(".fig").write_bytes(b"native-fig")
 
-    monkeypatch.setattr(run_release.subprocess, "run", fake_matlab_run)
+    monkeypatch.setattr(matlab_fig.subprocess, "run", fake_matlab_run)
     assert export_native_figures(tmp_path, Path("/fake/matlab")) == 2
+    refreshed = json.loads((tmp_path / "figures_index.json").read_text())
+    assert refreshed["native_figures_written"] == 1
+    assert refreshed["native_figures_deferred"] == 0
+    assert refreshed["figures"][0]["artifacts"]["fig"] == "two.fig"
+    with (tmp_path / "figures_index.csv").open(encoding="utf-8", newline="") as handle:
+        row = next(csv.DictReader(handle))
+    assert row["fig_filename"] == "two.fig"
+    assert row["fig_status"] == "written"

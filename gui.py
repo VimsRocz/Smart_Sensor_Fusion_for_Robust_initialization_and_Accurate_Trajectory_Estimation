@@ -7,7 +7,6 @@ import itertools
 import math
 import os
 import queue
-import shutil
 import subprocess
 import sys
 import threading
@@ -17,7 +16,9 @@ from tkinter import filedialog, messagebox, ttk
 
 REPO_ROOT = Path(__file__).resolve().parent
 RUNNER = REPO_ROOT / "PYTHON" / "main.py"
-RELEASE_RUNNER = REPO_ROOT / "PYTHON" / "run_release.py"
+sys.path.insert(0, str(REPO_ROOT / "PYTHON"))
+
+from fusion_pipeline.matlab_fig import find_matlab
 METHODS = (
     "TRIAD",
     "Davenport",
@@ -28,21 +29,6 @@ METHODS = (
     "ALL",
 )
 PAIRINGS = ("Auto", "By index", "All combinations")
-
-
-def find_matlab() -> Path | None:
-    """Locate MATLAB for optional native FIG conversion."""
-    candidates: list[Path] = []
-    discovered = shutil.which("matlab")
-    if discovered:
-        candidates.append(Path(discovered))
-    for base in (Path("/Applications"), Path.home() / "Applications"):
-        if base.is_dir():
-            candidates.extend(sorted(base.glob("MATLAB*.app/bin/matlab"), reverse=True))
-    return next(
-        (path.resolve() for path in candidates if path.is_file() and os.access(path, os.X_OK)),
-        None,
-    )
 
 
 class FilePicker(ttk.LabelFrame):
@@ -167,7 +153,7 @@ class FusionGUI(tk.Tk):
         ).grid(row=0, column=3, padx=(0, 12))
         ttk.Checkbutton(
             options,
-            text="Create native MATLAB FIG",
+            text="Create editable MATLAB FIG",
             variable=self.variables["native_figs"],
         ).grid(row=0, column=4, padx=(0, 12))
         ttk.Label(options, text="Output").grid(row=0, column=5, padx=(0, 4))
@@ -313,20 +299,14 @@ class FusionGUI(tk.Tk):
                 command.extend(("--truth", truth))
             if config:
                 command.extend(("--config", config))
+            if self.variables["native_figs"].get():
+                matlab_binary = find_matlab()
+                command.extend(("--fig", "on", "--matlab-bin", str(matlab_binary)))
+            else:
+                command.extend(("--fig", "off"))
             if validate_only:
                 command.append("--validate-only")
             commands.append(command)
-            if not validate_only and self.variables["native_figs"].get():
-                commands.append(
-                    [
-                        sys.executable,
-                        "-u",
-                        str(RELEASE_RUNNER),
-                        "--export-figs-only",
-                        "--output",
-                        str(output / run_id),
-                    ]
-                )
         return commands
 
     def _preflight(self) -> bool:
@@ -344,8 +324,9 @@ class FusionGUI(tk.Tk):
                 self.variables["native_figs"].set(False)
                 messagebox.showwarning(
                     "MATLAB not found",
-                    "PNG, PDF, and MAT files will still be created. Native FIG "
-                    "conversion was disabled because no MATLAB executable was found.",
+                    "PNG, PDF, and editable plot-data MAT files will still be created. "
+                    "Native FIG conversion was disabled because no MATLAB executable "
+                    "was found.",
                 )
             return True
         except ValueError as exc:

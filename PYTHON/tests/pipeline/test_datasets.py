@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import fusion_pipeline.cli as cli
 from fusion_pipeline.cli import main
 from fusion_pipeline.datasets import BUNDLED, describe_datasets, resolve_dataset
 
@@ -153,3 +154,38 @@ def test_running_with_no_inputs_at_all_explains_the_options(capsys):
     with pytest.raises(SystemExit):
         main(["--method", "TRIAD"])
     assert "--dataset" in capsys.readouterr().err
+
+
+def test_fig_on_fails_before_pipeline_when_matlab_is_missing(monkeypatch, capsys):
+    pipeline_called = False
+
+    def unexpected_pipeline(*_args, **_kwargs):
+        nonlocal pipeline_called
+        pipeline_called = True
+
+    monkeypatch.setattr(cli, "find_matlab", lambda _explicit=None: None)
+    monkeypatch.setattr(cli, "run_pipeline", unexpected_pipeline)
+    code = main(
+        [
+            "--imu", str(SMALL_IMU),
+            "--gnss", str(SMALL_GNSS),
+            "--method", "TRIAD",
+            "--tasks", "1",
+            "--fig", "on",
+        ]
+    )
+    assert code == 2
+    assert not pipeline_called
+    assert "MATLAB was not found" in capsys.readouterr().err
+
+
+def test_fig_export_runs_for_completed_pipeline(monkeypatch, tmp_path):
+    matlab = tmp_path / "matlab"
+    exported: list[tuple[Path, Path]] = []
+    monkeypatch.setattr(
+        cli,
+        "export_native_figures",
+        lambda root, binary: exported.append((root, binary)),
+    )
+    cli._finish_fig_export(tmp_path / "run", matlab, "on")
+    assert exported == [(tmp_path / "run", matlab)]

@@ -49,6 +49,9 @@ PNG has a genuine, directly openable same-stem `.fig`. Set
 on `PATH`. Without MATLAB, the normal Make targets compute PNG/MAT successfully
 in deferred mode instead of failing preflight. Existing PNG results can be
 converted without rerunning fusion using `make release-figs MATLAB_BIN=...`.
+The converter rebuilds MATLAB axes and plotted data objects from each MAT
+companion rather than placing the PNG inside a raster-only FIG, so zoom, pan,
+data tips and plot-property editing remain available.
 
 Requires the legacy dependencies:
 
@@ -98,15 +101,16 @@ logs (`Subtask 4.13 Validate and Plot Data`, `Subtask 5.8 Plotting Results`, …
 Figure **titles** carry the same numbers, e.g. `Task 5.8.3 – TRIAD – Mixed
 Frames (Position NED, Velocity ECEF, Acceleration Body)`.
 
-Each plot is written as **`.png`, `.pdf` and `.mat`** while the script runs. If
-MATLAB is available, a native `.fig` is written in the same save call (or by
-the release runner's immediate MATLAB batch audit) and opens after upload
-without running a redraw script. Without MATLAB, normal release targets defer
-only native FIG creation; `make release-compute` and `make release-18-compute`
-remain explicit aliases for that workflow. The results contain a portable
-FIG-conversion bundle. Copy that directory to a MATLAB system and run
-`export_release_figures(pwd)` once. This creates the FIGs without repeating the
-fusion computation.
+Each plot is written as **`.png`, `.pdf` and `.mat`** while the script runs. The
+MAT contains the plotted numeric data and is intentionally kept even after FIG
+creation. If MATLAB is available, a native editable `.fig` is written in the
+same save call (or by the release runner's immediate MATLAB batch audit) and
+opens without running a redraw script. Without MATLAB, normal release targets
+defer only native FIG creation; `make release-compute` and
+`make release-18-compute` remain explicit aliases for that workflow. The
+results contain a portable FIG-conversion bundle. Copy that directory to a
+MATLAB system and run `export_release_figures(pwd)` once. This creates the FIGs
+without repeating the fusion computation.
 
 ## Two fixes that were needed to produce these
 

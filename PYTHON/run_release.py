@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from fusion_pipeline.matlab_fig import export_native_figures, find_matlab
+
 
 ROOT = Path(__file__).resolve().parents[1]
 IMU_FILES = {
@@ -352,54 +354,6 @@ def _display_command(command: Iterable[str]) -> str:
     return shlex.join(str(part) for part in command)
 
 
-def find_matlab(explicit: str | None = None) -> Path | None:
-    """Locate a MATLAB executable for automatic native ``.fig`` export."""
-    candidates: list[Path] = []
-    if explicit:
-        candidates.append(Path(explicit).expanduser())
-    discovered = shutil.which("matlab")
-    if discovered:
-        candidates.append(Path(discovered))
-    for base in (Path("/Applications"), Path.home() / "Applications"):
-        if base.is_dir():
-            candidates.extend(
-                sorted(base.glob("MATLAB*.app/bin/matlab"), reverse=True)
-            )
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate.resolve()
-    return None
-
-
-def export_native_figures(results_dir: Path, matlab_binary: Path) -> int:
-    """Use MATLAB once to turn every result PNG into a directly openable FIG."""
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    def matlab_string(path: Path) -> str:
-        return str(path).replace("'", "''")
-
-    matlab_dir = ROOT / "MATLAB"
-    expression = (
-        f"addpath('{matlab_string(matlab_dir)}'); "
-        f"export_release_figures('{matlab_string(results_dir.resolve())}');"
-    )
-    subprocess.run(
-        [str(matlab_binary), "-batch", expression],
-        cwd=ROOT,
-        check=True,
-    )
-    pngs = sorted(results_dir.rglob("*.png"))
-    missing = [png for png in pngs if not png.with_suffix(".fig").is_file()]
-    if missing:
-        preview = "\n".join(f"  {path}" for path in missing[:10])
-        raise RuntimeError(
-            f"MATLAB FIG audit failed: {len(missing)} of {len(pngs)} PNG files "
-            f"have no native .fig companion.\n{preview}"
-        )
-    print(f"MATLAB FIG audit: {len(pngs)}/{len(pngs)} PNG files have native .fig companions")
-    return len(pngs)
-
-
 def apply_matlab_policy(
     matlab_binary: Path | None,
     *,
@@ -428,18 +382,23 @@ def prepare_deferred_fig_bundle(results_dir: Path) -> None:
     """Make a results directory self-contained for FIG conversion elsewhere."""
     results_dir.mkdir(parents=True, exist_ok=True)
     exporter = results_dir / "export_release_figures.m"
+    helper = results_dir / "export_python_figure.m"
     shutil.copy2(ROOT / "MATLAB/export_release_figures.m", exporter)
+    shutil.copy2(ROOT / "MATLAB/export_python_figure.m", helper)
     instructions = results_dir / "CREATE_NATIVE_FIGS.txt"
     instructions.write_text(
         "NATIVE MATLAB FIG CONVERSION (NO FUSION RECOMPUTATION)\n\n"
         "1. Copy this complete results directory to a system with MATLAB.\n"
         "2. In MATLAB, change Current Folder to this directory.\n"
         "3. Run:  export_release_figures(pwd)\n"
-        "4. Every PNG will then have a same-stem native FIG. Open any FIG "
-        "directly with openfig or by double-clicking it.\n",
+        "4. Every PNG will then have a same-stem native FIG. New canonical "
+        "MAT companions reconstruct editable axes and plot objects, so zoom, "
+        "pan and data tips work in MATLAB.\n"
+        "5. Open any FIG directly with openfig or by double-clicking it.\n",
         encoding="utf-8",
     )
     print(f"Deferred FIG conversion bundle: {exporter}")
+    print(f"Deferred editable-FIG helper: {helper}")
     print(f"Deferred FIG instructions: {instructions}")
 
 

@@ -12,6 +12,7 @@ from .attitude import METHODS
 from .catalog import describe_catalog
 from .contracts import InputContractError, load_gnss, load_imu, load_truth, validation_summary
 from .datasets import BUNDLED, describe_datasets, resolve_dataset
+from .matlab_fig import export_native_figures, find_matlab
 from .pipeline import ALL_METHODS_TOKEN, PipelineConfig, parse_methods, run_methods, run_pipeline
 from .report import REPORT_MODES, Progress, comparison_report, run_report
 
@@ -102,6 +103,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--validate-only", action="store_true", help="Validate inputs and exit without running tasks")
     parser.add_argument("--no-plots", action="store_true", help="Write numeric artifacts only")
+    parser.add_argument(
+        "--fig",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="auto = create editable FIGs when MATLAB is found; on = require MATLAB; off = skip FIG conversion",
+    )
+    parser.add_argument("--matlab-bin", help="Path to MATLAB executable (otherwise auto-detected)")
     parser.add_argument("--print-contract", action="store_true", help="Print accepted input structures and exit")
     parser.add_argument("--list-tasks", action="store_true", help="Print the task/subtask/figure catalog and exit")
     parser.add_argument("--list-datasets", action="store_true", help="Print the bundled datasets and exit")
@@ -164,6 +172,23 @@ def _report_single(result: dict[str, Any], mode: str) -> None:
     print(run_report(result, mode))
 
 
+def _finish_fig_export(
+    export_root: Path,
+    matlab_binary: Path | None,
+    fig_mode: str,
+) -> None:
+    if fig_mode == "off":
+        return
+    if matlab_binary is not None:
+        export_native_figures(export_root, matlab_binary)
+        return
+    print(
+        "[INFO] MATLAB not found: PNG/PDF and editable MAT data were written; "
+        "native FIG conversion is deferred.",
+        file=sys.stderr,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -209,6 +234,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.no_plots:
             pipeline_cfg["plots"] = False
         cfg = PipelineConfig.from_mapping(pipeline_cfg)
+        matlab_binary = None
+        if cfg.plots and args.fig != "off":
+            matlab_binary = find_matlab(args.matlab_bin)
+            if matlab_binary is None and args.fig == "on":
+                raise RuntimeError(
+                    "Editable .fig creation was requested but MATLAB was not found. "
+                    "Pass --matlab-bin /path/to/matlab or use --fig auto/off."
+                )
         selected_methods = parse_methods(method_selection)
         progress = Progress(enabled=args.progress == "on")
 
@@ -231,6 +264,9 @@ def main(argv: list[str] | None = None) -> int:
                 config=cfg,
                 progress=progress,
             )
+            export_root = Path(result["run_dir"])
+            if cfg.plots:
+                _finish_fig_export(export_root, matlab_binary, args.fig)
             _report_single(result, args.report)
         else:
             result = run_methods(
@@ -244,6 +280,9 @@ def main(argv: list[str] | None = None) -> int:
                 config=cfg,
                 progress=progress,
             )
+            export_root = Path(result["comparison_dir"]).parent
+            if cfg.plots:
+                _finish_fig_export(export_root, matlab_binary, args.fig)
             for method_result in result["results"].values():
                 _report_single(method_result, args.report)
             if args.report == "none":

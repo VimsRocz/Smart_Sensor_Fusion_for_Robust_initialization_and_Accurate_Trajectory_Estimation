@@ -236,23 +236,9 @@ def save_plot_mat(fig: Figure, filename: str) -> None:
     where each line is stored as ``ax<i>_line<j>_x`` and ``ax<i>_line<j>_y``.
     """
 
-    import numpy as _np
-    from scipy.io import savemat as _savemat
+    from fusion_pipeline.figure_export import _write_generic_mat_companion
 
-    out: dict[str, _np.ndarray] = {}
-    for i, ax in enumerate(fig.get_axes(), start=1):
-        prefix = f"ax{i}"
-        out[f"{prefix}_title"] = _np.array(ax.get_title(), dtype=object)
-        out[f"{prefix}_xlabel"] = _np.array(ax.get_xlabel(), dtype=object)
-        out[f"{prefix}_ylabel"] = _np.array(ax.get_ylabel(), dtype=object)
-        for j, line in enumerate(ax.get_lines(), start=1):
-            out[f"{prefix}_line{j}_x"] = _np.asarray(line.get_xdata())
-            out[f"{prefix}_line{j}_y"] = _np.asarray(line.get_ydata())
-            label = line.get_label()
-            if label and not label.startswith("_"):
-                out[f"{prefix}_line{j}_label"] = _np.array(label, dtype=object)
-
-    _savemat(filename, out, do_compression=True)
+    _write_generic_mat_companion(fig, Path(filename))
 
 
 def save_plot_fig(fig: Figure, filename: str) -> None:

@@ -119,12 +119,21 @@ def test_enabled_writer_writes_plot_artifacts_and_defers_only_native_fig(
         dataset_tags={"imu": "IMU", "gnss": "GNSS", "truth": None},
         enabled=True,
     )
-    writer.emit(
-        1,
-        "reference_origin_map",
-        tmp_path,
-        lambda plt: plt.subplots()[0],
+    def draw(plt):
+        figure, axis = plt.subplots()
+        axis.plot([0.0, 1.0], [2.0, 3.0], label="editable series")
+        axis.set(xlabel="Time [s]", ylabel="Value", title="Editable test")
+        axis.set_xticks([0.0, 1.0], ["start", "finish"])
+        axis.legend()
+        return figure
+
+    figure_spec = next(
+        item for item in TASKS[0].figures if item.slug == "reference_origin_map"
     )
+    expected_mat = tmp_path / writer.filename(TASKS[0], figure_spec)
+    expected_mat = expected_mat.with_suffix(".mat")
+    pytest.importorskip("scipy.io").savemat(expected_mat, {"custom_state": [4.0, 5.0]})
+    writer.emit(1, "reference_origin_map", tmp_path, draw)
 
     record = writer.records[0]
     assert (tmp_path / record["artifacts"]["png"]).is_file()
@@ -132,6 +141,17 @@ def test_enabled_writer_writes_plot_artifacts_and_defers_only_native_fig(
     assert (tmp_path / record["artifacts"]["mat"]).is_file()
     assert record["artifacts"]["fig"] is None
     assert record["artifacts"]["fig_status"] == "deferred"
+
+    plot_data = pytest.importorskip("scipy.io").loadmat(
+        tmp_path / record["artifacts"]["mat"]
+    )
+    assert plot_data["figure_schema_version"].size
+    assert int(plot_data["axes_count"].item()) == 1
+    assert int(plot_data["ax1_line_count"].item()) == 1
+    assert plot_data["ax1_line1_x"].ravel().tolist() == [0.0, 1.0]
+    assert plot_data["ax1_line1_y"].ravel().tolist() == [2.0, 3.0]
+    assert plot_data["ax1_xticks"].ravel().tolist() == [0.0, 1.0]
+    assert plot_data["custom_state"].ravel().tolist() == [4.0, 5.0]
 
 
 def test_catalog_text_and_dict_stay_in_sync():

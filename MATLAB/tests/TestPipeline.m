@@ -130,10 +130,24 @@ classdef TestPipeline < matlab.unittest.TestCase
                 testCase.verifyTrue(isfile(fullfile(result.run_dir, ...
                     char(written.task_directory(r)), char(written.pdf_filename(r)))), ...
                     sprintf('Missing PDF file: %s', written.pdf_filename(r)));
+                testCase.verifyTrue(isfile(fullfile(result.run_dir, ...
+                    char(written.task_directory(r)), char(written.mat_filename(r)))), ...
+                    sprintf('Missing plotted-data MAT file: %s', written.mat_filename(r)));
                 testCase.verifyEqual(string(written.fig_status(r)), "written");
                 testCase.verifyEqual(string(written.pdf_status(r)), "written");
+                testCase.verifyEqual(string(written.mat_status(r)), "written");
             end
             testCase.verifyEmpty(find(index.status == "not_implemented", 1));
+
+            editableRow = written(written.figure == "propagated_quaternion", :);
+            editablePath = fullfile(result.run_dir, ...
+                char(editableRow.task_directory(1)), char(editableRow.fig_filename(1)));
+            editableFigure = openfig(editablePath, 'invisible');
+            editableCleanup = onCleanup(@() close(editableFigure));
+            testCase.verifyNotEmpty(findall(editableFigure, 'Type', 'line'));
+            zoomObject = zoom(editableFigure); zoomObject.Enable = 'on';
+            testCase.verifyEqual(zoomObject.Enable, 'on');
+            clear editableCleanup
         end
 
         function releaseExporterWritesDirectlyOpenableNativeFig(testCase)
@@ -144,6 +158,30 @@ classdef TestPipeline < matlab.unittest.TestCase
             exportgraphics(fig, pngPath);
             close(fig);
 
+            matPath = fullfile(testCase.OutputRoot, 'release_plot.mat');
+            figure_schema_version = 'sensor-fusion-figure-v1'; %#ok<NASGU>
+            figure_title = 'Editable release FIG export test'; %#ok<NASGU>
+            figure_footer = 'data-backed MATLAB reconstruction'; %#ok<NASGU>
+            figure_size_inches = [8 5]; axes_count = 1; %#ok<NASGU>
+            ax1_position = [.12 .14 .82 .72]; %#ok<NASGU>
+            ax1_title = 'Sine wave'; ax1_xlabel = 'Time [s]'; ax1_ylabel = 'Value'; %#ok<NASGU>
+            ax1_xlim = [0 1]; ax1_ylim = [-1 1]; %#ok<NASGU>
+            ax1_xscale = 'linear'; ax1_yscale = 'linear'; ax1_grid = 1; %#ok<NASGU>
+            ax1_line_count = 1; ax1_line1_x = 0:.1:1; ax1_line1_y = sin(ax1_line1_x); %#ok<NASGU>
+            ax1_line1_label = 'sin(t)'; ax1_line1_color = [0 .447 .741 1]; %#ok<NASGU>
+            ax1_line1_linestyle = '-'; ax1_line1_linewidth = 1; %#ok<NASGU>
+            ax1_line1_marker = 'none'; ax1_line1_markersize = 6; %#ok<NASGU>
+            ax1_scatter_count = 0; ax1_rectangle_count = 0; %#ok<NASGU>
+            ax1_image_count = 0; ax1_text_count = 0; %#ok<NASGU>
+            save(matPath, 'figure_schema_version', 'figure_title', 'figure_footer', ...
+                'figure_size_inches', 'axes_count', 'ax1_position', 'ax1_title', ...
+                'ax1_xlabel', 'ax1_ylabel', 'ax1_xlim', 'ax1_ylim', 'ax1_xscale', ...
+                'ax1_yscale', 'ax1_grid', 'ax1_line_count', 'ax1_line1_x', ...
+                'ax1_line1_y', 'ax1_line1_label', 'ax1_line1_color', ...
+                'ax1_line1_linestyle', 'ax1_line1_linewidth', 'ax1_line1_marker', ...
+                'ax1_line1_markersize', 'ax1_scatter_count', 'ax1_rectangle_count', ...
+                'ax1_image_count', 'ax1_text_count');
+
             count = export_release_figures(testCase.OutputRoot);
             figPath = fullfile(testCase.OutputRoot, 'release_plot.fig');
             testCase.verifyEqual(count, 1);
@@ -152,6 +190,10 @@ classdef TestPipeline < matlab.unittest.TestCase
             reopened = openfig(figPath, 'invisible');
             closeCleanup = onCleanup(@() close(reopened));
             testCase.verifyTrue(isgraphics(reopened, 'figure'));
+            lines = findall(reopened, 'Type', 'line');
+            testCase.verifyNotEmpty(lines);
+            testCase.verifyEqual(lines(1).YData, sin(0:.1:1), 'AbsTol', 1e-12);
+            testCase.verifyTrue(reopened.UserData.editable_plot_objects);
             clear closeCleanup
         end
     end

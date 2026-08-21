@@ -7,6 +7,11 @@ on:
       - agent/restructure-task-pipeline
     paths:
       - .github/workflows/export-native-figs.yml
+      - MATLAB/export_python_figure.m
+      - MATLAB/export_release_figures.m
+      - PYTHON/fusion_pipeline/figure_export.py
+      - PYTHON/fusion_pipeline/matlab_fig.py
+      - PYTHON/src/utils/matlab_fig_export.py
 
 permissions:
   contents: read
@@ -60,9 +65,14 @@ jobs:
               --defer-fig \
               --output results
 
-            # Large numeric companions are reproducible and are removed here
-            # so each matrix job stays comfortably within runner disk limits.
-            find results -type f \( -name '*.mat' -o -name '*.npz' -o -name '*.pdf' \) -delete
+            # Keep same-stem plot MAT files until MATLAB reconstructs the
+            # editable graphics objects; remove only non-figure intermediates.
+            while IFS= read -r -d '' mat; do
+              if [[ ! -f "${mat%.mat}.png" ]]; then
+                rm -f -- "$mat"
+              fi
+            done < <(find results -type f -name '*.mat' -print0)
+            find results -type f \( -name '*.npz' -o -name '*.pdf' \) -delete
           done
 
       - name: Set up MATLAB
@@ -86,6 +96,11 @@ jobs:
             for k = 1:numel(figs)
                 figPath = fullfile(figs(k).folder, figs(k).name);
                 h = openfig(figPath, "invisible");
+                metadata = h.UserData;
+                assert(isstruct(metadata) && ...
+                    isfield(metadata, "editable_plot_objects") && ...
+                    metadata.editable_plot_objects, ...
+                    "FIG is not data-editable: %s", figPath);
                 close(h);
             end
             fprintf("Validated %d/%d native FIG files with MATLAB openfig.\n", ...

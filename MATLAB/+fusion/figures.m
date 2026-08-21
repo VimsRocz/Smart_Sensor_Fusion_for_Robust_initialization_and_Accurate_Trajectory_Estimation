@@ -14,8 +14,8 @@ function varargout = figures(action, varargin)
 %   name = fusion.figures('filename', ctx, taskNumber, figureSlug)
 %   ctx  = fusion.figures('save', ctx, taskNumber, figureSlug, outDir, f, dpi)
 %       Stamps the identifying title/footer onto figure handle f, writes the
-%       PNG, publication PDF and native MATLAB FIG while f is still open,
-%       closes f, and appends a record to ctx.records.
+%       PNG, publication PDF, plotted-data MAT and native MATLAB FIG while f
+%       is still open, closes f, and appends a record to ctx.records.
 %   ctx  = fusion.figures('skip', ctx, taskNumber, figureSlug, reason)
 %   fusion.figures('write_index', ctx, runDir)
 %       Writes figures_index.csv and figures_index.json. Any catalog figure
@@ -124,8 +124,10 @@ target = fullfile(outDir, name);
 [folder, stem] = fileparts(target);
 figTarget = fullfile(folder, [stem '.fig']);
 pdfTarget = fullfile(folder, [stem '.pdf']);
+matTarget = fullfile(folder, [stem '.mat']);
 
 stamp(f, task, spec, ctx);
+cleanup = onCleanup(@() close_if_valid(f));
 exportgraphics(f, target, 'Resolution', dpi);
 pdfStatus = 'written';
 try
@@ -135,21 +137,29 @@ catch exception
     warning('fusion:Figures:PdfSaveFailed', ...
         'Could not save PDF %s: %s', pdfTarget, exception.message);
 end
-figStatus = 'written';
+plot_data = extract_figure_data(f); %#ok<NASGU>
 try
-    % Save the live MATLAB graphics object, rather than reconstructing a
-    % raster image later.  This preserves axes, legends and editable lines
-    % for openfig(...), exactly as recommended by MathWorks.
+    save(matTarget, 'plot_data', '-v7');
+catch exception
+    error('fusion:Figures:MatSaveFailed', ...
+        'Could not save plotted-data MAT %s: %s', matTarget, exception.message);
+end
+try
     savefig(f, figTarget);
 catch exception
-    figStatus = 'deferred';
-    warning('fusion:Figures:FigSaveFailed', ...
-        'Could not save native FIG %s: %s', figTarget, exception.message);
+    error('fusion:Figures:FigSaveFailed', ...
+        'Could not save native editable FIG %s: %s', figTarget, exception.message);
 end
-close(f);
+if ~isfile(figTarget)
+    error('fusion:Figures:FigNotWritten', ...
+        'MATLAB did not create the native editable FIG: %s', figTarget);
+end
+clear cleanup
+close_if_valid(f);
 
 ctx.records{end+1} = make_record(task, spec, ctx, 'written', '', name, target, ...
-    [stem '.fig'], figTarget, figStatus, [stem '.pdf'], pdfTarget, pdfStatus);
+    [stem '.fig'], figTarget, 'written', [stem '.pdf'], pdfTarget, pdfStatus, ...
+    [stem '.mat'], matTarget, 'written');
 end
 
 function ctx = skip_figure(ctx, taskNumber, figureSlug, reason)
@@ -158,13 +168,17 @@ ctx.records{end+1} = make_record(task, spec, ctx, 'skipped', reason, '', '');
 end
 
 function record = make_record(task, spec, ctx, status, reason, name, target, ...
-    figName, figTarget, figStatus, pdfName, pdfTarget, pdfStatus)
+    figName, figTarget, figStatus, pdfName, pdfTarget, pdfStatus, ...
+    matName, matTarget, matStatus)
 if nargin < 8; figName = ''; end
 if nargin < 9; figTarget = ''; end
 if nargin < 10; figStatus = ''; end
 if nargin < 11; pdfName = ''; end
 if nargin < 12; pdfTarget = ''; end
 if nargin < 13; pdfStatus = ''; end
+if nargin < 14; matName = ''; end
+if nargin < 15; matTarget = ''; end
+if nargin < 16; matStatus = ''; end
 c = fusion.catalog();
 meaning = '';
 index = find(strcmp(c.frames(:, 1), spec.frame), 1);
@@ -189,7 +203,8 @@ record = struct( ...
     'sensor_data', data_tag(ctx, spec.sources), 'method', ctx.method, ...
     'status', status, 'reason', reason, 'filename', name, 'path', target, ...
     'fig_filename', figName, 'fig_path', figTarget, 'fig_status', figStatus, ...
-    'pdf_filename', pdfName, 'pdf_path', pdfTarget, 'pdf_status', pdfStatus);
+    'pdf_filename', pdfName, 'pdf_path', pdfTarget, 'pdf_status', pdfStatus, ...
+    'mat_filename', matName, 'mat_path', matTarget, 'mat_status', matStatus);
 end
 
 function stamp(f, task, spec, ctx)
@@ -213,6 +228,74 @@ annotation(f, 'textbox', [0 0 1 0.035], 'String', footer, ...
     'Interpreter', 'none', 'FitBoxToText', 'off');
 end
 
+function plotData = extract_figure_data(f)
+plotData = struct( ...
+    'schema_version', 'sensor-fusion-matlab-figure-v1', ...
+    'figure_name', string(f.Name), ...
+    'figure_position', double(f.Position), ...
+    'axes', {{}});
+axesHandles = flipud(findall(f, 'Type', 'axes'));
+for axesIndex = 1:numel(axesHandles)
+    ax = axesHandles(axesIndex);
+    axisData = struct( ...
+        'position', double(ax.Position), ...
+        'title', graphics_text(ax.Title), ...
+        'xlabel', graphics_text(ax.XLabel), ...
+        'ylabel', graphics_text(ax.YLabel), ...
+        'xlim', double(ax.XLim), ...
+        'ylim', double(ax.YLim), ...
+        'xscale', string(ax.XScale), ...
+        'yscale', string(ax.YScale), ...
+        'lines', {{}}, 'scatters', {{}}, 'bars', {{}}, 'images', {{}});
+
+    lines = flipud(findall(ax, 'Type', 'line'));
+    for index = 1:numel(lines)
+        item = lines(index);
+        axisData.lines{end+1} = struct( ...
+            'x', double(item.XData), 'y', double(item.YData), ...
+            'display_name', string(item.DisplayName), ...
+            'color', double(item.Color), 'line_style', string(item.LineStyle), ...
+            'line_width', double(item.LineWidth), 'marker', string(item.Marker)); %#ok<AGROW>
+    end
+
+    scatters = flipud(findall(ax, 'Type', 'scatter'));
+    for index = 1:numel(scatters)
+        item = scatters(index);
+        axisData.scatters{end+1} = struct( ...
+            'x', double(item.XData), 'y', double(item.YData), ...
+            'size_data', double(item.SizeData), ...
+            'display_name', string(item.DisplayName)); %#ok<AGROW>
+    end
+
+    bars = flipud(findall(ax, 'Type', 'bar'));
+    for index = 1:numel(bars)
+        item = bars(index);
+        axisData.bars{end+1} = struct( ...
+            'x', double(item.XData), 'y', double(item.YData), ...
+            'display_name', string(item.DisplayName)); %#ok<AGROW>
+    end
+
+    images = flipud(findall(ax, 'Type', 'image'));
+    for index = 1:numel(images)
+        item = images(index);
+        axisData.images{end+1} = struct( ...
+            'cdata', item.CData, 'xdata', double(item.XData), ...
+            'ydata', double(item.YData)); %#ok<AGROW>
+    end
+    plotData.axes{end+1} = axisData;
+end
+end
+
+function value = graphics_text(handle)
+raw = handle.String;
+if iscell(raw); value = strjoin(string(raw), newline);
+else; value = string(raw); end
+end
+
+function close_if_valid(f)
+if isgraphics(f); close(f); end
+end
+
 % ---------------------------------------------------------------------------
 function write_index(ctx, runDir)
 records = complete_records(ctx);
@@ -221,7 +304,7 @@ if ~exist(runDir, 'dir'); mkdir(runDir); end
 columns = {'task', 'task_name', 'subtask', 'subtask_name', 'figure', ...
     'figure_title', 'coordinate_frame', 'sensor_data', 'method', 'status', ...
     'task_directory', 'filename', 'pdf_filename', 'pdf_status', ...
-    'fig_filename', 'fig_status'};
+    'fig_filename', 'fig_status', 'mat_filename', 'mat_status'};
 rows = cell(numel(records), numel(columns));
 for r = 1:numel(records)
     for k = 1:numel(columns)

@@ -46,7 +46,6 @@ def _save(fig, out_dir: Path, stem: str, arrays: dict | None = None) -> None:
     """Write PNG + PDF, and a .mat holding the plotted arrays for MATLAB."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    save_matlab_fig(fig, str(out_dir / stem))
     if arrays:
         try:
             from scipy.io import savemat
@@ -60,6 +59,7 @@ def _save(fig, out_dir: Path, stem: str, arrays: dict | None = None) -> None:
             print(f"[MAT ] {out_dir / stem}.mat keys={sorted(arrays)}")
         except Exception as exc:  # pragma: no cover
             print(f"[WARN] could not write {stem}.mat: {exc}")
+    save_matlab_fig(fig, str(out_dir / stem))
     plt.close(fig)
 
 
