@@ -146,7 +146,7 @@ classdef TestPipeline < matlab.unittest.TestCase
             editableCleanup = onCleanup(@() close(editableFigure));
             testCase.verifyNotEmpty(findall(editableFigure, 'Type', 'line'));
             zoomObject = zoom(editableFigure); zoomObject.Enable = 'on';
-            testCase.verifyEqual(zoomObject.Enable, 'on');
+            testCase.verifyEqual(string(zoomObject.Enable), "on");
             clear editableCleanup
         end
 
