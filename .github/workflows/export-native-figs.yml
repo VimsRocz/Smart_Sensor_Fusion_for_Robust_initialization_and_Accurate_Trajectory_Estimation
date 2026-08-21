@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - agent/restructure-task-pipeline
+      - release/editable-matlab-fig
     paths:
       - .github/workflows/export-native-figs.yml
       - MATLAB/export_python_figure.m

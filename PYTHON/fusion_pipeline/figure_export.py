@@ -231,6 +231,16 @@ def _write_generic_mat_companion(fig: Any, path: Path) -> None:
         print(f"[WARN] could not write generic MAT companion {path}: {exc}")
 
 
+def write_mat_companion(fig: Any, path: str | Path) -> Path:
+    """Write the data-backed MAT companion used for MATLAB reconstruction."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _write_generic_mat_companion(fig, target)
+    if not target.is_file():
+        raise RuntimeError(f"MAT companion was not created: {target}")
+    return target
+
+
 def _matlab_engine() -> Any:
     """Return one cached MATLAB Engine session, or ``False`` when unavailable."""
     global _ENG

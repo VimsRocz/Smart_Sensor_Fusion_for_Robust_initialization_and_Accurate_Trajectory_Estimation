@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 import os
 from utils.plot_save import save_plot, task_summary
+from utils.matlab_fig_export import write_mat_companion
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,24 @@ except Exception:  # pragma: no cover - graceful degradation
     PLOTLY_AVAILABLE = False
 
 from utils import ecef_to_geodetic
+
+
+def _write_location_map_companion(png_path: Path, lat_deg: float, lon_deg: float) -> None:
+    import matplotlib.pyplot as plt
+
+    companion, axes = plt.subplots(figsize=(12, 8))
+    axes.set_xlim(-180, 180)
+    axes.set_ylim(-90, 90)
+    axes.set_xticks(np.arange(-180, 181, 30))
+    axes.set_yticks(np.arange(-90, 91, 15))
+    axes.grid(True)
+    axes.scatter([lon_deg], [lat_deg], color="red", s=80, label="Initial GNSS location")
+    axes.set_xlabel("Longitude [deg]")
+    axes.set_ylabel("Latitude [deg]")
+    axes.set_title("Task 1.2 — Initial GNSS location")
+    axes.legend(loc="best")
+    write_mat_companion(companion, png_path.with_suffix(".mat"))
+    plt.close(companion)
 
 
 def ensure_deg_latlon(lat_in, lon_in):
@@ -95,6 +114,7 @@ def task1_reference_vectors(gnss_data: pd.DataFrame, output_dir: str | Path, run
             chrome = getattr(pio.kaleido.scope, "chromium", "unknown")
             print(f"[Task1] Kaleido chromium={chrome}")
             pio.write_image(fig, png_path, width=1200, height=800, scale=2)
+            _write_location_map_companion(png_path, lat_deg, lon_deg)
             print(f"[SAVE] {png_path}")
         except Exception as ex:
             print(f"[Task1] Kaleido export failed: {ex}; using Matplotlib fallback")

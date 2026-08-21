@@ -17,6 +17,7 @@ from fusion_pipeline.figure_export import (  # noqa: E402,F401
     WRITTEN,
     save_matlab_fig,
     validate_fig_openable,
+    write_mat_companion,
 )
 
 
