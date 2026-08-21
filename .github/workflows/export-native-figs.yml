@@ -12,6 +12,7 @@ on:
       - PYTHON/fusion_pipeline/figure_export.py
       - PYTHON/fusion_pipeline/matlab_fig.py
       - PYTHON/src/utils/matlab_fig_export.py
+      - PYTHON/src/utils/plot_saver.py
       - PYTHON/src/requirements.txt
       - pyproject.toml
 
