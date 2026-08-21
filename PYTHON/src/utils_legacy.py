@@ -55,32 +55,19 @@ def get_data_file(filename: str) -> pathlib.Path:
 
 
 def ensure_dependencies(requirements: Optional[pathlib.Path] = None) -> None:
-    """Install packages from ``requirements.txt`` if key deps are missing.
+    """Install and verify the dependencies declared beside the scripts.
 
-    Checks for :mod:`tabulate`, :mod:`tqdm` and :mod:`pandas` and installs
-    everything listed in the requirements file if any of them are not found.
+    Keep this compatibility function because several legacy entry points
+    already call it, but delegate the actual check to the standard-library-only
+    bootstrap so every entry point uses the same requirements file and import
+    mapping.
     """
     try:
-        import tabulate  # noqa: F401
-        import tqdm  # noqa: F401
-        import pandas  # noqa: F401
-    except ModuleNotFoundError:
-        if requirements is None:
-            requirements = (
-                pathlib.Path(__file__).resolve().parents[1]
-                / "requirements.txt"
-            )
-        else:
-            requirements = pathlib.Path(requirements)
-        print("Installing Python dependencies ...")
-        subprocess.check_call([
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "-r",
-            str(requirements),
-        ])
+        from .dependency_bootstrap import ensure_dependencies as _ensure_dependencies
+    except ImportError:  # legacy top-level import
+        from dependency_bootstrap import ensure_dependencies as _ensure_dependencies
+
+    _ensure_dependencies(requirements)
 
 
 def detect_static_interval(

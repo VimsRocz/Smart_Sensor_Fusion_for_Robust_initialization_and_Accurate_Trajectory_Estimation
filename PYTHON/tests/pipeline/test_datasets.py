@@ -1,9 +1,4 @@
-"""Dataset selection must resolve the verified IMU/GNSS/truth pairings.
-
-The registry holds exactly the three datasets that exist: x001, x002 and x003.
-The CLI tests below run against the small extracts by explicit path so the suite
-stays fast; the registry itself always points at the full files.
-"""
+"""Dataset selection must resolve the verified full and short pairings."""
 
 import json
 from pathlib import Path
@@ -19,8 +14,15 @@ SMALL_GNSS = ROOT / "DATA/GNSS/GNSS_X001_small.csv"
 SMALL_TRUTH = ROOT / "DATA/Truth/STATE_X001_small.txt"
 
 
-def test_registry_holds_exactly_the_three_real_datasets():
-    assert set(BUNDLED) == {"x001", "x002", "x003"}
+def test_registry_holds_full_and_short_versions_of_each_dataset():
+    assert set(BUNDLED) == {
+        "x001",
+        "x002",
+        "x003",
+        "x001_small",
+        "x002_small",
+        "x003_small",
+    }
 
 
 def test_every_bundled_dataset_points_at_files_that_exist():
@@ -36,6 +38,13 @@ def test_x003_is_paired_with_the_x002_gnss():
     assert dataset.truth is None
 
 
+def test_x003_small_is_paired_with_the_x002_small_gnss():
+    dataset = resolve_dataset("x003_small")
+    assert dataset.imu.endswith("IMU_X003_small.dat")
+    assert dataset.gnss.endswith("GNSS_X002_small.csv")
+    assert dataset.truth is None
+
+
 def test_x002_pairs_with_its_own_gnss_and_has_no_truth():
     dataset = resolve_dataset("x002")
     assert dataset.imu.endswith("IMU_X002.dat")
@@ -43,8 +52,8 @@ def test_x002_pairs_with_its_own_gnss_and_has_no_truth():
     assert dataset.truth is None
 
 
-def test_only_x001_carries_a_reference_trajectory():
-    assert {name for name, d in BUNDLED.items() if d.truth} == {"x001"}
+def test_only_x001_variants_carry_a_reference_trajectory():
+    assert {name for name, d in BUNDLED.items() if d.truth} == {"x001", "x001_small"}
 
 
 def test_unknown_dataset_lists_the_available_names():

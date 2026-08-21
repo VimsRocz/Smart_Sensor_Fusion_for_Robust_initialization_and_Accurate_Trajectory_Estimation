@@ -36,6 +36,13 @@ if __package__ is None:
     sys.path.insert(1, str(here.parent.parent))
     __package__ = "src"
 
+try:
+    from .dependency_bootstrap import ensure_dependencies
+except ImportError:  # direct execution with src on sys.path
+    from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt

@@ -1,5 +1,10 @@
 # Release Task 1–7 plots
 
+> This page documents the older flat release runner. New configurable work,
+> including the project-document Tasks 4.6, 5.10 and 7.6, belongs in the
+> canonical `PYTHON/main.py` / `PYTHON/fusion_pipeline/` pipeline. See
+> [PROJECT_DOCUMENT_TRACEABILITY.md](PROJECT_DOCUMENT_TRACEABILITY.md).
+
 This is **the** plot set. It is what the released version produced and what the
 project expects. Everything lands flat in `results/`, named:
 
@@ -38,9 +43,11 @@ The runner validates file structure and synchronized time coverage before it
 invokes the full-rate Tasks 1–7 implementation. IMU and GNSS row counts are
 expected to differ because their sample rates differ.
 
-It also invokes MATLAB automatically and verifies that every PNG has a genuine,
-directly openable same-stem `.fig`. Set `MATLAB_BIN=/path/to/matlab` on the Make
-command if MATLAB is installed but not on `PATH`. Existing PNG results can be
+When MATLAB is available, it is invoked automatically and verifies that every
+PNG has a genuine, directly openable same-stem `.fig`. Set
+`MATLAB_BIN=/path/to/matlab` on the Make command if MATLAB is installed but not
+on `PATH`. Without MATLAB, the normal Make targets compute PNG/MAT successfully
+in deferred mode instead of failing preflight. Existing PNG results can be
 converted without rerunning fusion using `make release-figs MATLAB_BIN=...`.
 
 Requires the legacy dependencies:
@@ -91,14 +98,15 @@ logs (`Subtask 4.13 Validate and Plot Data`, `Subtask 5.8 Plotting Results`, …
 Figure **titles** carry the same numbers, e.g. `Task 5.8.3 – TRIAD – Mixed
 Frames (Position NED, Velocity ECEF, Acceleration Body)`.
 
-Each plot is written as **`.png` and native MATLAB `.fig`**, plus a `.mat`
-companion holding the plotted arrays; most plotting paths also write PDF. The FIG stores the exact rendered
-plot inside a native MATLAB figure, so it opens after upload without running a
-redraw script. Normal release targets require MATLAB. To compute on a machine
-without MATLAB, use `make release-compute` or `make release-18-compute`; the
-results contain a portable FIG-conversion bundle. Copy that directory to a
-MATLAB system and run `export_release_figures(pwd)` once. This creates the FIGs
-without repeating the fusion computation.
+Each plot is written as **`.png`, `.pdf` and `.mat`** while the script runs. If
+MATLAB is available, a native `.fig` is written in the same save call (or by
+the release runner's immediate MATLAB batch audit) and opens after upload
+without running a redraw script. Without MATLAB, normal release targets defer
+only native FIG creation; `make release-compute` and `make release-18-compute`
+remain explicit aliases for that workflow. The results contain a portable
+FIG-conversion bundle. Copy that directory to a MATLAB system and run
+`export_release_figures(pwd)` once. This creates the FIGs without repeating the
+fusion computation.
 
 ## Two fixes that were needed to produce these
 
@@ -135,11 +143,9 @@ without MATLAB:
    acceleration body. It is now **position NED, velocity ECEF, acceleration
    body**, so all three reference frames appear, one per row.
 
-## Known issue in Task 7
+## Legacy Task 7 note
 
-`task7_ned_residuals` currently shows position residuals of order **10⁶ m**. That
-is not a real error — truth and estimate are not being reduced to a common NED
-origin inside that legacy script before differencing. The Task 5 residual plots
-(`task5_residuals_position_residuals`, `task5_residuals_velocity_residuals`),
-which compare against GNSS, are the trustworthy residual figures until this is
-fixed.
+The flat legacy `task7_ned_residuals` plot does not share the canonical frame
+contract. Use the Task 6/7 outputs from `PYTHON/main.py`; they transform truth
+and estimate through the same ECEF origin and NED rotation before differencing,
+and use `-Down` for relative height.

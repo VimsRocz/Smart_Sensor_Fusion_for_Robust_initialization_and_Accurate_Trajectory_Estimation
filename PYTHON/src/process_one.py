@@ -24,6 +24,11 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+
+from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
+
 import yaml
 
 
@@ -90,4 +95,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

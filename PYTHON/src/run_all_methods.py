@@ -25,6 +25,10 @@ _SRC = _Path(__file__).resolve().parent
 if str(_SRC) not in _sys.path:
     _sys.path.insert(0, str(_SRC))
 REPO_ROOT = _SRC.parents[2]
+from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
+
 import itertools
 import os
 import pathlib

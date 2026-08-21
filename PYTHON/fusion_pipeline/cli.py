@@ -46,7 +46,7 @@ def _pick(argument: Any, section: dict[str, Any], key: str, default: Any = None)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="run_pipeline.py",
+        prog="main.py",
         description="Run the contract-driven Tasks 1-7 GNSS/IMU fusion pipeline.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         epilog=(
@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  --dataset x003           IMU_X003 + GNSS_X002, no truth\n"
             "  --dataset x002           IMU_X002 + GNSS_X002, no truth\n"
             "  --dataset x001           IMU_X001 + GNSS_X001 + STATE_X001\n"
+            "  --dataset x001_small     short baseline for smoke tests and previews\n"
             "  --list-datasets          show every bundled dataset and its pairing\n"
             "  --no-truth               ignore the reference even if the dataset has one\n"
         ),

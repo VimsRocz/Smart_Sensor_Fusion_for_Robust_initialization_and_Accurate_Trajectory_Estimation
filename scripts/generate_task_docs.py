@@ -36,7 +36,7 @@ Every task, subtask, output directory and figure below is generated from
 reads at run time. Print the same information at any time with:
 
 ```bash
-.venv/bin/python PYTHON/run_pipeline.py --list-tasks
+.venv/bin/python PYTHON/main.py --list-tasks
 ```
 
 ## Dependency rule

@@ -13,6 +13,11 @@ diagnostic figures are saved to ``results/``.  This mirrors the MATLAB function
 import argparse
 import os
 import logging
+
+from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
+
 import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt
@@ -21,6 +26,12 @@ import matplotlib.pyplot as plt
 from kalman import GNSSIMUKalman, rts_smoother
 from utils import compute_C_ECEF_to_NED, zero_base_time
 from constants import GRAVITY, EARTH_RATE
+from paths import (
+    imu_path as _imu_path_helper,
+    gnss_path as _gnss_path_helper,
+    ensure_results_dir as _ensure_results,
+    normalize_gnss_headers,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -275,5 +286,4 @@ def main():
             print(f"{name}: mean={data.mean():.3f}, std={data.std():.3f}")
 
 if __name__=='__main__':
-from paths import imu_path as _imu_path_helper, gnss_path as _gnss_path_helper, ensure_results_dir as _ensure_results, normalize_gnss_headers
     main()

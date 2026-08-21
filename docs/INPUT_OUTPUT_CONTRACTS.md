@@ -13,7 +13,7 @@ in the root [README](../README.md#custom-fixed-format-release-files).
 **Every layout below is a default, not a requirement.** If your files are formatted differently, declare the difference in the `pipeline:` section of your configuration instead of rewriting the data. Start from `config/pipeline_custom_data_template.yaml`, and print the live contract at any time with:
 
 ```bash
-.venv/bin/python PYTHON/run_pipeline.py --print-contract
+.venv/bin/python PYTHON/main.py --print-contract
 ```
 
 **All column indices are zero-based.** Column 0 is the first column in the file.
@@ -128,6 +128,7 @@ count time_s X_ECEF_m Y_ECEF_m Z_ECEF_m VX_ECEF_mps VY_ECEF_mps VZ_ECEF_mps [q0 
 
 - Each executed task has exactly one named directory, taken from the catalog in `PYTHON/fusion_pipeline/catalog.py`.
 - Every subtask produces at least one figure.
+- Every written Python figure has same-stem PNG, PDF and MAT artifacts; MATLAB also writes a native FIG. Python records FIG as deferred when no MATLAB executable is available.
 - JSON summaries are written atomically (temp file plus rename).
 - Large numeric arrays use compressed NPZ in Python and MAT in MATLAB.
 - Each run writes `figures_index.json` and `figures_index.csv` listing every figure with its task, task name, subtask, subtask name, figure title, coordinate frame, source datasets and status.
@@ -136,8 +137,10 @@ count time_s X_ECEF_m Y_ECEF_m Z_ECEF_m VX_ECEF_mps VY_ECEF_mps VZ_ECEF_mps [q0 
 ### Figure naming
 
 ```text
-<run-id>_<METHOD>_task<NN>_sub<T.S>_<task-slug>_<figure-slug>_frame-<FRAME>_data-<DATASETS>.png
+<run-id>_<METHOD>_task<NN>_sub<T.S>_<task-slug>_<figure-slug>_frame-<FRAME>_data-<DATASETS>.<ext>
 ```
+
+`<ext>` is `png`, `pdf`, `mat`, or `fig` as supported by the current runtime.
 
 `<DATASETS>` lists the input file stems the figure actually draws from, joined with `+`. Frame tags are `ECEF`, `GEODETIC`, `BODY`, `NED`, `BODY2NED`, `BODYvsNED` and `NONE`; their meanings are in [TASKS_AND_SUBTASKS.md](TASKS_AND_SUBTASKS.md). The same metadata is stamped inside each image as a title and footer.
 

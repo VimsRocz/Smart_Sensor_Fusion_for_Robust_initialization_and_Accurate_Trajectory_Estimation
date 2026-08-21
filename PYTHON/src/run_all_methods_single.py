@@ -17,6 +17,10 @@ import sys
 from pathlib import Path
 import os
 
+from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
+
 SCRIPT_MAP = {
     "TRIAD": "run_triad_only.py",
     "Davenport": "run_davenport_only.py",

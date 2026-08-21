@@ -1,0 +1,22 @@
+# Runtime dependencies for the scripts in this directory.
+# Install with: python3 -m pip install -r requirements.txt
+
+numpy>=1.26
+scipy>=1.11
+pandas>=2.0
+matplotlib>=3.8
+PyYAML>=6.0
+filterpy>=1.4.5
+rich>=13.0
+tabulate>=0.9
+tqdm>=4.66
+pyproj>=3.6
+
+# Used by the interactive plotting and static image export helpers.
+plotly>=5.0
+kaleido>=0.2.1
+
+# Optional map/geocoding support is deliberately not required here. The code
+# detects these packages and falls back to a dependency-free map renderer:
+# cartopy>=0.22
+# geopy>=2.4

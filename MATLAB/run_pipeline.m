@@ -85,7 +85,7 @@ if last >= 6
     [tasks{6}, figCtx] = fusion.task6(data.truth, tasks{1}, tasks{5}, cfg, task_dir(runDir, 6), figCtx);
 end
 if last >= 7
-    [tasks{7}, figCtx] = fusion.task7(tasks{5}, tasks{6}, cfg, task_dir(runDir, 7), figCtx);
+    [tasks{7}, figCtx] = fusion.task7(tasks{1}, tasks{5}, tasks{6}, cfg, task_dir(runDir, 7), figCtx);
 end
 
 fusion.figures('write_index', figCtx, runDir);
@@ -96,6 +96,8 @@ manifest.finished_utc = char(finished);
 manifest.elapsed_s = seconds(finished - started);
 manifest.figures = struct( ...
     'written', sum(cellfun(@(r) strcmp(r.status, 'written'), figCtx.records)), ...
+    'native_figures_written', sum(cellfun(@(r) strcmp(r.fig_status, 'written'), figCtx.records)), ...
+    'native_figures_deferred', sum(cellfun(@(r) strcmp(r.fig_status, 'deferred'), figCtx.records)), ...
     'index_csv', fullfile(runDir, 'figures_index.csv'));
 if numel(tasks) >= 7 && ~isempty(tasks{7})
     manifest.metrics = tasks{7}.metrics;

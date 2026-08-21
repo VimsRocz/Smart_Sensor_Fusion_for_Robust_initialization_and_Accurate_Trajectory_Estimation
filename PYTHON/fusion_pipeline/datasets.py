@@ -45,7 +45,7 @@ BUNDLED: dict[str, Dataset] = {
         "DATA/IMU/IMU_X001.dat",
         "DATA/GNSS/GNSS_X001.csv",
         "DATA/Truth/STATE_X001.txt",
-        "Noise-free baseline. The only run with a reference trajectory.",
+        "Noise-free baseline with a reference trajectory.",
     ),
     "x002": Dataset(
         "x002",
@@ -60,6 +60,27 @@ BUNDLED: dict[str, Dataset] = {
         "DATA/GNSS/GNSS_X002.csv",
         None,
         "X002 plus a constant IMU bias. Reuses the X002 GNSS. No truth.",
+    ),
+    "x001_small": Dataset(
+        "x001_small",
+        "DATA/IMU/IMU_X001_small.dat",
+        "DATA/GNSS/GNSS_X001_small.csv",
+        "DATA/Truth/STATE_X001_small.txt",
+        "Short noise-free baseline for smoke tests and GUI previews.",
+    ),
+    "x002_small": Dataset(
+        "x002_small",
+        "DATA/IMU/IMU_X002_small.dat",
+        "DATA/GNSS/GNSS_X002_small.csv",
+        None,
+        "Short noisy dataset. No truth.",
+    ),
+    "x003_small": Dataset(
+        "x003_small",
+        "DATA/IMU/IMU_X003_small.dat",
+        "DATA/GNSS/GNSS_X002_small.csv",
+        None,
+        "Short biased-IMU dataset. Reuses the short X002 GNSS. No truth.",
     ),
 }
 
@@ -98,7 +119,7 @@ def describe_datasets(root: Path | None = None) -> str:
     lines += [
         "",
         "X003 has no GNSS file of its own; it is paired with GNSS_X002 by design.",
-        "Only X001 ships a reference trajectory. Runs without truth complete Tasks 1-5,",
+        "Only X001 and its small extract ship a reference trajectory. Runs without truth complete Tasks 1-5,",
         "record Task 6 as skipped, and report GNSS innovation statistics in Task 7.",
         "",
         "Add --no-truth to ignore the reference even when the dataset provides one.",

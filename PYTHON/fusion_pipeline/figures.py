@@ -1,13 +1,15 @@
 """Figure generation, naming and indexing for Tasks 1-7.
 
-Every PNG produced by the pipeline is named from the catalog so the filename
+Every figure produced by the pipeline is named from the catalog so the filename
 alone identifies the run, the method, the task, the subtask, the task name, the
 figure, the coordinate frame, and the sensor files the data came from::
 
     <run-id>_<METHOD>_task<NN>_sub<T.S>_<task-slug>_<figure-slug>_frame-<FRAME>_data-<DATASETS>.png
 
 The same metadata is stamped onto the figure itself and collected into
-``figures_index.json`` / ``figures_index.csv`` at the root of the run.
+``figures_index.json`` / ``figures_index.csv`` at the root of the run.  Each
+emitted plot writes PNG/PDF/MAT immediately; a native MATLAB FIG is written in
+the same call when MATLAB Engine is available.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from .catalog import (
     TaskSpec,
     frame_description,
 )
-from .math3d import quaternion_series_to_euler_zyx_deg
+from .math3d import quaternion_series_to_euler_zyx_deg, quaternion_to_matrix
 
 NED_LABELS = ("North", "East", "Down")
 AXIS_LABELS = ("x", "y", "z")
@@ -236,10 +238,30 @@ class FigureWriter:
         try:
             bottom, top = self._stamp(fig, task, figure)
             fig.tight_layout(rect=(0, bottom, 1, top))
-            fig.savefig(path, dpi=self.dpi)
+            # Matplotlib has no native MATLAB FIG writer.  The shared exporter
+            # writes PNG/PDF/MAT immediately and uses MATLAB Engine for a real
+            # .fig when MATLAB is available.  Without MATLAB, the PNG/MAT
+            # artifacts remain usable and the release runner can defer only the
+            # native FIG conversion.
+            from .figure_export import save_matlab_fig
+
+            native_fig = save_matlab_fig(fig, str(path.with_suffix("")))
         finally:
             self.plt.close(fig)
-        self._record(task, figure, path, "written", None)
+        self._record(
+            task,
+            figure,
+            path,
+            "written",
+            None,
+            artifacts={
+                "png": path.name,
+                "pdf": path.with_suffix(".pdf").name,
+                "mat": path.with_suffix(".mat").name,
+                "fig": native_fig.name if native_fig is not None else None,
+                "fig_status": "written" if native_fig is not None else "deferred",
+            },
+        )
         return path
 
     def skip(self, task_number: int, figure_slug: str, reason: str) -> None:
@@ -253,6 +275,7 @@ class FigureWriter:
         path: Path | None,
         status: str,
         reason: str | None,
+        artifacts: dict[str, Any] | None = None,
     ) -> None:
         self.records.append(
             {
@@ -272,6 +295,7 @@ class FigureWriter:
                 "reason": reason,
                 "filename": path.name if path else None,
                 "path": str(path) if path else None,
+                "artifacts": artifacts or {},
             }
         )
         if self.progress is not None:
@@ -294,6 +318,14 @@ class FigureWriter:
             "datasets": self.dataset_tags,
             "figures_written": len(written),
             "figures_total": len(self.records),
+            "native_figures_written": sum(
+                record.get("artifacts", {}).get("fig_status") == "written"
+                for record in written
+            ),
+            "native_figures_deferred": sum(
+                record.get("artifacts", {}).get("fig_status") == "deferred"
+                for record in written
+            ),
             "figures": self.records,
         }
         json_path = run_dir / "figures_index.json"
@@ -312,7 +344,17 @@ class FigureWriter:
             "status",
             "task_directory",
             "filename",
+            "pdf_filename",
+            "mat_filename",
+            "fig_filename",
+            "fig_status",
         ]
+        for record in self.records:
+            artifacts = record.get("artifacts", {})
+            record["pdf_filename"] = artifacts.get("pdf")
+            record["mat_filename"] = artifacts.get("mat")
+            record["fig_filename"] = artifacts.get("fig")
+            record["fig_status"] = artifacts.get("fig_status")
         with csv_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
             writer.writeheader()
@@ -412,15 +454,84 @@ def _state_grid(
     plt,
     time_s: np.ndarray,
     layers: Sequence[tuple[str, np.ndarray, np.ndarray, dict[str, Any]]],
+    column_titles: Sequence[str] = NED_LABELS,
 ) -> Any:
-    """Two rows (position, velocity) by three NED columns."""
+    """Two rows (position, velocity) by three frame-axis columns."""
     fig, axes = _triple_axes(plt, rows=2)
     for column in range(3):
         for label, position, velocity, style in layers:
             axes[0, column].plot(time_s, position[:, column], label=label, **style)
             axes[1, column].plot(time_s, velocity[:, column], label=label, **style)
-        _decorate(axes[0, column], None, "Position [m]" if column == 0 else None, NED_LABELS[column])
+        _decorate(
+            axes[0, column],
+            None,
+            "Position [m]" if column == 0 else None,
+            column_titles[column],
+        )
         _decorate(axes[1, column], "Time [s]", "Velocity [m/s]" if column == 0 else None)
+    if len(layers) > 1:
+        axes[0, 0].legend(fontsize=8)
+    return fig
+
+
+def _differentiate(values: np.ndarray, time_s: np.ndarray) -> np.ndarray:
+    """Differentiate a vector time series without assuming a fixed rate."""
+    values = np.asarray(values, dtype=float)
+    time_s = np.asarray(time_s, dtype=float)
+    if len(time_s) < 2:
+        return np.zeros_like(values)
+    edge_order = 2 if len(time_s) > 2 else 1
+    return np.gradient(values, time_s, axis=0, edge_order=edge_order)
+
+
+def _rotate_ned_to_body(values: np.ndarray, quaternions: np.ndarray) -> np.ndarray:
+    """Rotate NED vector rows into Body using scalar-first Body-to-NED quaternions."""
+    matrices = np.stack([quaternion_to_matrix(row) for row in quaternions])
+    return np.einsum("nji,nj->ni", matrices, np.asarray(values, dtype=float))
+
+
+def _interpolate_quaternions(
+    source_time_s: np.ndarray,
+    quaternions: np.ndarray,
+    target_time_s: np.ndarray,
+) -> np.ndarray:
+    """Linearly interpolate a continuous quaternion history and renormalise it."""
+    interpolated = np.column_stack(
+        [
+            np.interp(target_time_s, source_time_s, quaternions[:, column])
+            for column in range(4)
+        ]
+    )
+    norms = np.linalg.norm(interpolated, axis=1, keepdims=True)
+    return interpolated / np.maximum(norms, 1e-15)
+
+
+def _kinematic_grid(
+    plt,
+    layers: Sequence[
+        tuple[str, np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]
+    ],
+    column_titles: Sequence[str],
+) -> Any:
+    """Three rows (position, velocity, acceleration) by three frame axes."""
+    fig, axes = _triple_axes(plt, rows=3, width=14.5, height=2.75)
+    row_labels = ("Position [m]", "Velocity [m/s]", "Acceleration [m/s²]")
+    for column in range(3):
+        for label, time_s, position, velocity, acceleration, style in layers:
+            for row, values in enumerate((position, velocity, acceleration)):
+                axes[row, column].plot(
+                    time_s,
+                    values[:, column],
+                    label=label,
+                    **style,
+                )
+        for row in range(3):
+            _decorate(
+                axes[row, column],
+                "Time [s]" if row == 2 else None,
+                row_labels[row] if column == 0 else None,
+                column_titles[column] if row == 0 else None,
+            )
     if len(layers) > 1:
         axes[0, 0].legend(fontsize=8)
     return fig
@@ -679,6 +790,8 @@ def draw_task3(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> No
 # ---------------------------------------------------------------------------
 def draw_task4(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> None:
     imu = ctx["imu"]
+    gnss = ctx["gnss"]
+    task1 = ctx["task1"]
     task4 = ctx["task4"]
     time_s = task4["time_s"]
     step = stride_for(len(time_s), writer.max_points)
@@ -766,6 +879,112 @@ def draw_task4(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> No
         axis.legend(fontsize=8)
         return fig
 
+    c_ecef_to_ned = np.asarray(task1["c_ecef_to_ned"], dtype=float)
+    c_ned_to_ecef = c_ecef_to_ned.T
+    origin_ecef = np.asarray(task1["origin_ecef_m"], dtype=float)
+    gnss_position_ned = (
+        c_ecef_to_ned @ (gnss.position_ecef_m - origin_ecef).T
+    ).T
+    gnss_velocity_ned = (c_ecef_to_ned @ gnss.velocity_ecef_mps.T).T
+    gnss_acceleration_ned = _differentiate(gnss_velocity_ned, gnss.time_s)
+    imu_position_ned = task4["position"]
+    imu_velocity_ned = task4["velocity"]
+    imu_acceleration_ned = task4["acceleration"]
+
+    def task46_ned(plt):
+        return _kinematic_grid(
+            plt,
+            [
+                (
+                    "GNSS derived",
+                    gnss.time_s,
+                    gnss_position_ned,
+                    gnss_velocity_ned,
+                    gnss_acceleration_ned,
+                    {"linewidth": 0.9, "color": "black", "linestyle": "--"},
+                ),
+                (
+                    "IMU derived",
+                    t,
+                    imu_position_ned[::step],
+                    imu_velocity_ned[::step],
+                    imu_acceleration_ned[::step],
+                    {"linewidth": 0.8, "color": "tab:blue"},
+                ),
+            ],
+            NED_LABELS,
+        )
+
+    gnss_position_ecef = gnss.position_ecef_m
+    gnss_velocity_ecef = gnss.velocity_ecef_mps
+    gnss_acceleration_ecef = _differentiate(gnss_velocity_ecef, gnss.time_s)
+    imu_position_ecef = origin_ecef + (c_ned_to_ecef @ imu_position_ned.T).T
+    imu_velocity_ecef = (c_ned_to_ecef @ imu_velocity_ned.T).T
+    imu_acceleration_ecef = (c_ned_to_ecef @ imu_acceleration_ned.T).T
+
+    def task46_ecef(plt):
+        return _kinematic_grid(
+            plt,
+            [
+                (
+                    "GNSS derived",
+                    gnss.time_s,
+                    gnss_position_ecef,
+                    gnss_velocity_ecef,
+                    gnss_acceleration_ecef,
+                    {"linewidth": 0.9, "color": "black", "linestyle": "--"},
+                ),
+                (
+                    "IMU derived",
+                    t,
+                    imu_position_ecef[::step],
+                    imu_velocity_ecef[::step],
+                    imu_acceleration_ecef[::step],
+                    {"linewidth": 0.8, "color": "tab:blue"},
+                ),
+            ],
+            ("X", "Y", "Z"),
+        )
+
+    imu_quaternion = task4["quaternion"]
+    gnss_quaternion = _interpolate_quaternions(
+        task4["time_s"], imu_quaternion, gnss.time_s
+    )
+    gnss_position_body = _rotate_ned_to_body(gnss_position_ned, gnss_quaternion)
+    gnss_velocity_body = _rotate_ned_to_body(gnss_velocity_ned, gnss_quaternion)
+    gnss_acceleration_body = _rotate_ned_to_body(
+        gnss_acceleration_ned, gnss_quaternion
+    )
+    imu_position_body = _rotate_ned_to_body(imu_position_ned, imu_quaternion)
+    imu_velocity_body = _rotate_ned_to_body(imu_velocity_ned, imu_quaternion)
+    imu_acceleration_body = _rotate_ned_to_body(
+        imu_acceleration_ned, imu_quaternion
+    )
+
+    def task46_body(plt):
+        return _kinematic_grid(
+            plt,
+            [
+                (
+                    "GNSS derived",
+                    gnss.time_s,
+                    gnss_position_body,
+                    gnss_velocity_body,
+                    gnss_acceleration_body,
+                    {"linewidth": 0.9, "color": "black", "linestyle": "--"},
+                ),
+                (
+                    "IMU derived",
+                    t,
+                    imu_position_body[::step],
+                    imu_velocity_body[::step],
+                    imu_acceleration_body[::step],
+                    {"linewidth": 0.8, "color": "tab:blue"},
+                ),
+            ],
+            ("Body x", "Body y", "Body z"),
+        )
+
     writer.emit(4, "range_screening", directory, screening)
     writer.emit(4, "bias_corrected_imu", directory, bias_corrected)
     writer.emit(4, "propagated_quaternion", directory, propagated_quaternion)
@@ -773,6 +992,9 @@ def draw_task4(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> No
     writer.emit(4, "imu_only_position_velocity", directory, position_velocity)
     writer.emit(4, "imu_only_acceleration", directory, acceleration)
     writer.emit(4, "imu_only_ground_track", directory, ground_track)
+    writer.emit(4, "gnss_vs_imu_ned", directory, task46_ned)
+    writer.emit(4, "gnss_vs_imu_ecef", directory, task46_ecef)
+    writer.emit(4, "gnss_vs_imu_body", directory, task46_body)
 
 
 # ---------------------------------------------------------------------------
@@ -780,6 +1002,7 @@ def draw_task4(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> No
 # ---------------------------------------------------------------------------
 def draw_task5(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> None:
     task4, task5 = ctx["task4"], ctx["task5"]
+    task1 = ctx["task1"]
     time_s = task5["time_s"]
     step = stride_for(len(time_s), writer.max_points)
     t = time_s[::step]
@@ -844,11 +1067,77 @@ def draw_task5(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> No
             ],
         )
 
+    position_ned = task5["position"]
+    velocity_ned = task5["velocity"]
+    acceleration_ned = task5["acceleration"]
+
+    def task510_ned(plt):
+        return _kinematic_grid(
+            plt,
+            [
+                (
+                    "Fused GNSS + IMU",
+                    t,
+                    position_ned[::step],
+                    velocity_ned[::step],
+                    acceleration_ned[::step],
+                    {"linewidth": 0.85, "color": "tab:blue"},
+                )
+            ],
+            NED_LABELS,
+        )
+
+    c_ned_to_ecef = np.asarray(task1["c_ecef_to_ned"], dtype=float).T
+    origin_ecef = np.asarray(task1["origin_ecef_m"], dtype=float)
+    position_ecef = origin_ecef + (c_ned_to_ecef @ position_ned.T).T
+    velocity_ecef = (c_ned_to_ecef @ velocity_ned.T).T
+    acceleration_ecef = (c_ned_to_ecef @ acceleration_ned.T).T
+
+    def task510_ecef(plt):
+        return _kinematic_grid(
+            plt,
+            [
+                (
+                    "Fused GNSS + IMU",
+                    t,
+                    position_ecef[::step],
+                    velocity_ecef[::step],
+                    acceleration_ecef[::step],
+                    {"linewidth": 0.85, "color": "tab:blue"},
+                )
+            ],
+            ("X", "Y", "Z"),
+        )
+
+    quaternion = task5["quaternion"]
+    position_body = _rotate_ned_to_body(position_ned, quaternion)
+    velocity_body = _rotate_ned_to_body(velocity_ned, quaternion)
+    acceleration_body = _rotate_ned_to_body(acceleration_ned, quaternion)
+
+    def task510_body(plt):
+        return _kinematic_grid(
+            plt,
+            [
+                (
+                    "Fused GNSS + IMU",
+                    t,
+                    position_body[::step],
+                    velocity_body[::step],
+                    acceleration_body[::step],
+                    {"linewidth": 0.85, "color": "tab:blue"},
+                )
+            ],
+            ("Body x", "Body y", "Body z"),
+        )
+
     writer.emit(5, "prediction_vs_gnss", directory, prediction_vs_gnss)
     writer.emit(5, "kalman_innovations", directory, innovations)
     writer.emit(5, "fused_position_velocity", directory, fused)
     writer.emit(5, "fused_ground_track", directory, ground_track)
     writer.emit(5, "fused_vs_imu_only", directory, fused_vs_imu)
+    writer.emit(5, "fused_state_ned", directory, task510_ned)
+    writer.emit(5, "fused_state_ecef", directory, task510_ecef)
+    writer.emit(5, "fused_state_body", directory, task510_body)
 
 
 # ---------------------------------------------------------------------------
@@ -981,6 +1270,13 @@ TASK7_TRUTH_FIGURES = (
     "position_error_distribution",
     "velocity_residuals",
     "attitude_error",
+    "fused_vs_truth_ned",
+    "fused_vs_truth_ecef",
+    "fused_vs_truth_body",
+    "quaternion_truth_vs_estimate",
+    "quaternion_error_components",
+    "euler_error_over_time",
+    "attitude_error_angle",
 )
 
 
@@ -1038,8 +1334,183 @@ def draw_task7(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> No
         writer.emit(7, "position_error_distribution", directory, distribution)
         writer.emit(7, "velocity_residuals", directory, velocity_residuals)
 
+        estimated_position_ned = overlay["estimated_position"]
+        truth_position_ned = overlay["truth_position"]
+        estimated_velocity_ned = overlay["estimated_velocity"]
+        truth_velocity_ned = overlay["truth_velocity"]
+
+        def task76_ned(plt):
+            return _state_grid(
+                plt,
+                t,
+                [
+                    (
+                        "Fused",
+                        estimated_position_ned[::step],
+                        estimated_velocity_ned[::step],
+                        {"linewidth": 0.9},
+                    ),
+                    (
+                        "Truth",
+                        truth_position_ned[::step],
+                        truth_velocity_ned[::step],
+                        {"linewidth": 0.9, "linestyle": "--"},
+                    ),
+                ],
+                NED_LABELS,
+            )
+
+        c_ned_to_ecef = np.asarray(ctx["c_ecef_to_ned"], dtype=float).T
+        origin_ecef = np.asarray(ctx["origin_ecef_m"], dtype=float)
+        estimated_position_ecef = origin_ecef + (
+            c_ned_to_ecef @ estimated_position_ned.T
+        ).T
+        truth_position_ecef = origin_ecef + (
+            c_ned_to_ecef @ truth_position_ned.T
+        ).T
+        estimated_velocity_ecef = (c_ned_to_ecef @ estimated_velocity_ned.T).T
+        truth_velocity_ecef = (c_ned_to_ecef @ truth_velocity_ned.T).T
+
+        def task76_ecef(plt):
+            return _state_grid(
+                plt,
+                t,
+                [
+                    (
+                        "Fused",
+                        estimated_position_ecef[::step],
+                        estimated_velocity_ecef[::step],
+                        {"linewidth": 0.9},
+                    ),
+                    (
+                        "Truth",
+                        truth_position_ecef[::step],
+                        truth_velocity_ecef[::step],
+                        {"linewidth": 0.9, "linestyle": "--"},
+                    ),
+                ],
+                ("X", "Y", "Z"),
+            )
+
+        estimated_quaternion = overlay["estimated_quaternion"]
+        truth_body_quaternion = overlay.get("truth_quaternion", estimated_quaternion)
+        estimated_position_body = _rotate_ned_to_body(
+            estimated_position_ned, estimated_quaternion
+        )
+        truth_position_body = _rotate_ned_to_body(
+            truth_position_ned, truth_body_quaternion
+        )
+        estimated_velocity_body = _rotate_ned_to_body(
+            estimated_velocity_ned, estimated_quaternion
+        )
+        truth_velocity_body = _rotate_ned_to_body(
+            truth_velocity_ned, truth_body_quaternion
+        )
+
+        def task76_body(plt):
+            return _state_grid(
+                plt,
+                t,
+                [
+                    (
+                        "Fused",
+                        estimated_position_body[::step],
+                        estimated_velocity_body[::step],
+                        {"linewidth": 0.9},
+                    ),
+                    (
+                        "Truth",
+                        truth_position_body[::step],
+                        truth_velocity_body[::step],
+                        {"linewidth": 0.9, "linestyle": "--"},
+                    ),
+                ],
+                ("Body x", "Body y", "Body z"),
+            )
+
+        writer.emit(7, "fused_vs_truth_ned", directory, task76_ned)
+        writer.emit(7, "fused_vs_truth_ecef", directory, task76_ecef)
+        writer.emit(7, "fused_vs_truth_body", directory, task76_body)
+
         if ctx.get("attitude_error_deg") is not None:
             attitude = ctx["attitude_error_deg"]
+            truth_quaternion = overlay["truth_quaternion"]
+
+            def quaternion_truth_vs_estimate(plt):
+                fig, axes = plt.subplots(2, 2, figsize=(11, 6.6), sharex=True)
+                for index, axis in enumerate(axes.flat):
+                    axis.plot(
+                        t,
+                        truth_quaternion[::step, index],
+                        linewidth=0.9,
+                        label="Truth",
+                    )
+                    axis.plot(
+                        t,
+                        estimated_quaternion[::step, index],
+                        linewidth=0.9,
+                        linestyle="--",
+                        label="Estimate",
+                    )
+                    axis.ticklabel_format(axis="y", style="plain", useOffset=False)
+                    _decorate(
+                        axis,
+                        "Time [s]" if index >= 2 else None,
+                        f"q{QUATERNION_LABELS[index]}",
+                    )
+                axes[0, 0].legend(fontsize=8)
+                return fig
+
+            def quaternion_error_components(plt):
+                error = estimated_quaternion - truth_quaternion
+                fig, axes = plt.subplots(2, 2, figsize=(11, 6.6), sharex=True)
+                for index, axis in enumerate(axes.flat):
+                    axis.plot(t, error[::step, index], linewidth=0.8, color="tab:red")
+                    axis.axhline(0, color="black", linewidth=0.6)
+                    _decorate(
+                        axis,
+                        "Time [s]" if index >= 2 else None,
+                        f"Δq{QUATERNION_LABELS[index]}",
+                    )
+                return fig
+
+            estimated_euler = quaternion_series_to_euler_zyx_deg(
+                estimated_quaternion
+            )
+            truth_euler = quaternion_series_to_euler_zyx_deg(truth_quaternion)
+            euler_error = (estimated_euler - truth_euler + 180.0) % 360.0 - 180.0
+
+            def euler_error_over_time(plt):
+                fig = _time_series_triple(
+                    plt,
+                    t,
+                    [
+                        (
+                            "Estimate − truth",
+                            euler_error[::step],
+                            {"linewidth": 0.8, "color": "tab:red"},
+                        )
+                    ],
+                    EULER_LABELS,
+                    "Angle error [deg]",
+                )
+                for axis in fig.axes:
+                    axis.axhline(0, color="black", linewidth=0.6)
+                return fig
+
+            def attitude_error_angle(plt):
+                fig, axis = plt.subplots(figsize=(11, 4.4))
+                axis.plot(t, attitude[::step], linewidth=0.8, color="tab:purple")
+                axis.axhline(
+                    float(metrics["attitude_rmse_deg"]),
+                    color="black",
+                    linestyle="--",
+                    linewidth=0.8,
+                    label=f"RMSE = {float(metrics['attitude_rmse_deg']):.4f}°",
+                )
+                _decorate(axis, "Time [s]", "Attitude error [deg]")
+                axis.legend(fontsize=8)
+                return fig
 
             def attitude_error(plt):
                 fig, axis = plt.subplots(figsize=(11, 4.4))
@@ -1051,8 +1522,33 @@ def draw_task7(writer: FigureWriter, directory: Path, ctx: dict[str, Any]) -> No
                 return fig
 
             writer.emit(7, "attitude_error", directory, attitude_error)
+            writer.emit(
+                7,
+                "quaternion_truth_vs_estimate",
+                directory,
+                quaternion_truth_vs_estimate,
+            )
+            writer.emit(
+                7,
+                "quaternion_error_components",
+                directory,
+                quaternion_error_components,
+            )
+            writer.emit(7, "euler_error_over_time", directory, euler_error_over_time)
+            writer.emit(7, "attitude_error_angle", directory, attitude_error_angle)
         else:
             writer.skip(7, "attitude_error", "truth file has no quaternion columns")
+            _skip_all(
+                writer,
+                7,
+                (
+                    "quaternion_truth_vs_estimate",
+                    "quaternion_error_components",
+                    "euler_error_over_time",
+                    "attitude_error_angle",
+                ),
+                "truth file has no quaternion columns",
+            )
     else:
         _skip_all(writer, 7, TASK7_TRUTH_FIGURES, ctx.get("skip_reason", "no truth file supplied"))
 

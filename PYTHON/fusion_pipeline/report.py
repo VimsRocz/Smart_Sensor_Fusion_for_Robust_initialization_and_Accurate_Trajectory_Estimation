@@ -271,6 +271,8 @@ def task_tables(records: Sequence[dict[str, Any]], run_dir: Path, executed: Sequ
             continue
         if all(record["status"] == "disabled" for record in task_records):
             blocks.append("    figures disabled (--no-plots); numeric artifacts only")
+            for subtask in task.subtasks:
+                blocks.append(f"    {subtask.number} — {subtask.name}")
             continue
         # Name each subtask once; repeating it on every figure row is noise.
         rows: list[list[str]] = []

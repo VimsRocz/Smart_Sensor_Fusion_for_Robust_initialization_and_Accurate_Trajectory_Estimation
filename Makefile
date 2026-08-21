@@ -3,7 +3,7 @@
 # to nothing and every target would fail with "command not found".
 VENV := $(CURDIR)/.venv
 PY := $(shell if [ -x "$(VENV)/bin/python" ]; then echo "$(VENV)/bin/python"; else command -v python3 || echo python3; fi)
-RUN = $(PY) PYTHON/run_pipeline.py
+RUN = $(PY) PYTHON/main.py
 RELEASE_RUN = $(PY) PYTHON/run_release.py
 SMALL = config/pipeline_small.yaml
 FULL = config/pipeline_x001_full.yaml
@@ -11,6 +11,7 @@ FULL = config/pipeline_x001_full.yaml
 # One method by default. Override on the command line:
 #   make run-x003 METHOD=SVD          make run-x001 METHOD=ALL
 METHOD ?= TRIAD
+TASK ?= 7
 # Which bundled dataset a `make run-dataset` call uses.
 DATASET ?= x003
 # Release cross-product selectors: 3 IMUs x 2 GNSS files x 3 methods.
@@ -21,7 +22,7 @@ OUTPUT_DIR ?= results
 RELEASE_TRUTH = $(if $(filter 1 yes true,$(NO_TRUTH)),--no-truth,--truth "$(TRUTH_FILE)")
 RELEASE_MATLAB = $(if $(strip $(MATLAB_BIN)),--matlab-bin "$(MATLAB_BIN)")
 
-.PHONY: help venv deps test smoke docs doctor gui \
+.PHONY: help venv deps test smoke docs doctor gui run-task \
         list-tasks contract validate validate-full \
         run-triad run-davenport run-svd run-all \
         run-triad-full run-davenport-full run-svd-full run-all-full \
@@ -43,7 +44,7 @@ help:
 	@echo "Release Task 1-7 plots  ->  results/"
 	@echo "  make release                            X001 IMU + X001 GNSS + TRIAD"
 	@echo "  make release-combo IMU_ID=x003 GNSS_ID=x001 METHOD=SVD"
-	@echo "  make release-18                         all 18 IMU x GNSS x method runs"
+	@echo "  make release-18                         all 18 runs; works without local MATLAB"
 	@echo "  make release-compute                    compute here; create FIGs later in MATLAB"
 	@echo "  make release-18-compute                 same two-stage mode for all 18"
 	@echo "  make release-list                       list the exact 18 combinations"
@@ -51,7 +52,7 @@ help:
 	@echo "  make release-figs MATLAB_BIN=/path/to/matlab   FIGs for existing PNGs"
 	@echo "  make release-custom IMU_FILE=... GNSS_FILE=... METHOD=TRIAD"
 	@echo "  Add NO_TRUTH=1 to omit Tasks 6-7 truth comparisons."
-	@echo "  Normal release targets require MATLAB so every PNG receives a native FIG."
+	@echo "  Without local MATLAB, release targets compute PNG/MAT and defer native FIG export."
 	@echo ""
 	@echo "Discovery"
 	@echo "  make list-tasks           print every task, subtask and figure"
@@ -64,6 +65,7 @@ help:
 	@echo "  make run-davenport        Tasks 1-7 with Davenport's Q-method"
 	@echo "  make run-svd              Tasks 1-7 with SVD/Wahba"
 	@echo "  make run-all              all three methods + cross-method comparison"
+	@echo "  make run-task TASK=4 METHOD=TRIAD   one task with prerequisites"
 	@echo ""
 	@echo "Full X001 dataset (~500,000 IMU samples)"
 	@echo "  make run-triad-full       make run-davenport-full   make run-svd-full"
@@ -116,7 +118,10 @@ test:
 	$(PY) -m pytest -q
 
 gui:
-	$(PY) gui.py
+	./scripts/run_gui.sh
+
+run-task:
+	./scripts/run_task.sh $(TASK) --config $(SMALL) --method $(METHOD)
 
 smoke:
 	$(RUN) --config $(SMALL) --no-plots
@@ -136,10 +141,10 @@ docs:
 
 release release-combo:
 	$(RELEASE_RUN) --imu "$(IMU_ID)" --gnss "$(GNSS_ID)" --method "$(METHOD)" \
-	  $(RELEASE_TRUTH) $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
+	  $(RELEASE_TRUTH) $(RELEASE_MATLAB) --defer-fig --output "$(OUTPUT_DIR)"
 
 release-18:
-	$(RELEASE_RUN) --all $(RELEASE_TRUTH) $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
+	$(RELEASE_RUN) --all $(RELEASE_TRUTH) $(RELEASE_MATLAB) --defer-fig --output "$(OUTPUT_DIR)"
 
 # Two-stage mode for this Mac: compute now, create native FIGs later on any
 # MATLAB system without repeating the full fusion computation.
@@ -162,7 +167,7 @@ release-figs:
 
 release-custom:
 	$(RELEASE_RUN) --imu "$(IMU_FILE)" --gnss "$(GNSS_FILE)" --method "$(METHOD)" \
-	  $(RELEASE_TRUTH) $(RELEASE_MATLAB) --output "$(OUTPUT_DIR)"
+	  $(RELEASE_TRUTH) $(RELEASE_MATLAB) --defer-fig --output "$(OUTPUT_DIR)"
 
 # ---------------------------------------------------------------------------
 list-tasks:

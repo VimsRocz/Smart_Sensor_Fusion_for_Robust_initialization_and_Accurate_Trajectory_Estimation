@@ -628,6 +628,10 @@ def _task4(
         f"final IMU-only position N {final_position[0]:.2f}"
         f" E {final_position[1]:.2f} D {final_position[2]:.2f} m",
     )
+    progress.subtask(
+        "4.6",
+        "GNSS and IMU position, velocity, and acceleration prepared in NED, ECEF, and Body",
+    )
     _write_json(directory / "summary.json", summary)
     result = {
         **summary,
@@ -642,6 +646,8 @@ def _task4(
         directory,
         {
             "imu": imu,
+            "gnss": gnss,
+            "task1": task1,
             "task4": result,
             "accel_screened": propagated["accel_screened"],
             "gyro_screened": propagated["gyro_screened"],
@@ -735,6 +741,10 @@ def _task5(
         f"final fused position N {position[-1, 0]:.2f}"
         f" E {position[-1, 1]:.2f} D {position[-1, 2]:.2f} m",
     )
+    progress.subtask(
+        "5.10",
+        "final fused position, velocity, and acceleration prepared in NED, ECEF, and Body",
+    )
     _write_json(directory / "summary.json", summary)
     result = {
         **summary,
@@ -750,6 +760,7 @@ def _task5(
         writer,
         directory,
         {
+            "task1": task1,
             "task4": task4,
             "task5": result,
             "gnss_time_s": gnss.time_s,
@@ -903,6 +914,7 @@ def _rmse(values: np.ndarray) -> float:
 
 
 def _task7(
+    task1: dict[str, Any],
     task5: dict[str, Any],
     task6: dict[str, Any],
     cfg: PipelineConfig,
@@ -910,7 +922,11 @@ def _task7(
     writer: FigureWriter,
     progress: Progress = SILENT,
 ) -> dict[str, Any]:
-    figure_context: dict[str, Any] = {"innovations": task5.get("innovations")}
+    figure_context: dict[str, Any] = {
+        "innovations": task5.get("innovations"),
+        "c_ecef_to_ned": task1["c_ecef_to_ned"],
+        "origin_ecef_m": task1["origin_ecef_m"],
+    }
     if task6.get("status") == "complete":
         overlay = task6["overlay"]
         position_error = overlay["estimated_position"] - overlay["truth_position"]
@@ -964,6 +980,10 @@ def _task7(
             else "skipped — truth file has no quaternion columns",
         )
         progress.subtask("7.4", f"{len(metrics)} scalar metrics exported")
+        progress.subtask(
+            "7.6",
+            "NED/ECEF/Body truth overlays and detailed attitude diagnostics prepared",
+        )
         status = "complete"
     else:
         innovations = task5.get("innovations", np.empty((0, 6)))
@@ -984,6 +1004,7 @@ def _task7(
                 else ""
             ),
         )
+        progress.subtask("7.6", "skipped — no truth overlay available")
         figure_context["overlay"] = None
         figure_context["skip_reason"] = task6.get("reason", "no truth overlay available")
         status = "complete_without_truth"
@@ -1048,7 +1069,9 @@ def _execute_tasks(
         outputs[6] = task6
     if last >= 7:
         progress.task_begin(7)
-        outputs[7] = _task7(task5, task6, cfg, _task_dir(run_dir, 7), writer, progress)
+        outputs[7] = _task7(
+            task1, task5, task6, cfg, _task_dir(run_dir, 7), writer, progress
+        )
         progress.task_end(7)
     return outputs
 
@@ -1163,6 +1186,9 @@ def run_pipeline(
         raise
     index_paths = writer.write_index(run_dir)
     finished = datetime.now(timezone.utc)
+    written_figures = [
+        record for record in writer.records if record["status"] == "written"
+    ]
     manifest.update(
         status="complete",
         finished_utc=finished.isoformat(),
@@ -1171,8 +1197,16 @@ def run_pipeline(
             str(number): str(run_dir / TASK_BY_NUMBER[number].directory_name) for number in outputs
         },
         figures={
-            "written": sum(1 for record in writer.records if record["status"] == "written"),
+            "written": len(written_figures),
             "skipped": sum(1 for record in writer.records if record["status"] == "skipped"),
+            "native_figures_written": sum(
+                record.get("artifacts", {}).get("fig_status") == "written"
+                for record in written_figures
+            ),
+            "native_figures_deferred": sum(
+                record.get("artifacts", {}).get("fig_status") == "deferred"
+                for record in written_figures
+            ),
             "index_json": str(index_paths["json"]),
             "index_csv": str(index_paths["csv"]),
         },
@@ -1258,8 +1292,21 @@ def run_methods(
         {"results": results, "metrics": metrics},
     )
     index_paths = comparison_writer.write_index(comparison_dir)
+    comparison_written = [
+        record
+        for record in comparison_writer.records
+        if record["status"] == "written"
+    ]
     comparison["figures"] = {
-        "written": sum(1 for record in comparison_writer.records if record["status"] == "written"),
+        "written": len(comparison_written),
+        "native_figures_written": sum(
+            record.get("artifacts", {}).get("fig_status") == "written"
+            for record in comparison_written
+        ),
+        "native_figures_deferred": sum(
+            record.get("artifacts", {}).get("fig_status") == "deferred"
+            for record in comparison_written
+        ),
         "index_json": str(index_paths["json"]),
         "index_csv": str(index_paths["csv"]),
     }

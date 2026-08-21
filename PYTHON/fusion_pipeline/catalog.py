@@ -158,6 +158,10 @@ TASKS: tuple[TaskSpec, ...] = (
             SubtaskSpec("4.1", "Screen physical-range outliers and remove the Task 3 biases"),
             SubtaskSpec("4.2", "Propagate the Body-to-NED quaternion with Earth and transport rates"),
             SubtaskSpec("4.3", "Apply Coriolis compensation and integrate the NED state"),
+            SubtaskSpec(
+                "4.6",
+                "Compare GNSS-derived and IMU-derived position, velocity, and acceleration in NED, ECEF, and Body frames",
+            ),
         ),
         figures=(
             FigureSpec("4.1", "range_screening", "Specific-force and angular-rate magnitudes against their limits", "BODY", (SENSOR_IMU,)),
@@ -167,6 +171,9 @@ TASKS: tuple[TaskSpec, ...] = (
             FigureSpec("4.3", "imu_only_position_velocity", "IMU-only position and velocity", "NED", (SENSOR_IMU,)),
             FigureSpec("4.3", "imu_only_acceleration", "IMU-only resolved acceleration", "NED", (SENSOR_IMU,)),
             FigureSpec("4.3", "imu_only_ground_track", "IMU-only horizontal ground track", "NED", (SENSOR_IMU,)),
+            FigureSpec("4.6", "gnss_vs_imu_ned", "GNSS-derived versus IMU-derived kinematics", "NED", (SENSOR_IMU, SENSOR_GNSS)),
+            FigureSpec("4.6", "gnss_vs_imu_ecef", "GNSS-derived versus IMU-derived kinematics", "ECEF", (SENSOR_IMU, SENSOR_GNSS)),
+            FigureSpec("4.6", "gnss_vs_imu_body", "GNSS-derived versus IMU-derived kinematics", "BODY", (SENSOR_IMU, SENSOR_GNSS)),
         ),
     ),
     TaskSpec(
@@ -181,6 +188,10 @@ TASKS: tuple[TaskSpec, ...] = (
             SubtaskSpec("5.1", "Predict the six-state NED position/velocity from IMU acceleration"),
             SubtaskSpec("5.2", "Apply Joseph-form updates at each asynchronous GNSS epoch"),
             SubtaskSpec("5.3", "Export the fused state and the innovation history"),
+            SubtaskSpec(
+                "5.10",
+                "Present the final fused position, velocity, and acceleration in NED, ECEF, and Body frames",
+            ),
         ),
         figures=(
             FigureSpec("5.1", "prediction_vs_gnss", "Filter prediction against the GNSS measurements", "NED", (SENSOR_IMU, SENSOR_GNSS)),
@@ -188,6 +199,9 @@ TASKS: tuple[TaskSpec, ...] = (
             FigureSpec("5.3", "fused_position_velocity", "Fused position and velocity", "NED", (SENSOR_IMU, SENSOR_GNSS)),
             FigureSpec("5.3", "fused_ground_track", "Fused horizontal ground track with GNSS fixes", "NED", (SENSOR_IMU, SENSOR_GNSS)),
             FigureSpec("5.3", "fused_vs_imu_only", "Fused solution against the IMU-only solution", "NED", (SENSOR_IMU, SENSOR_GNSS)),
+            FigureSpec("5.10", "fused_state_ned", "Final fused position, velocity, and acceleration", "NED", (SENSOR_IMU, SENSOR_GNSS)),
+            FigureSpec("5.10", "fused_state_ecef", "Final fused position, velocity, and acceleration", "ECEF", (SENSOR_IMU, SENSOR_GNSS)),
+            FigureSpec("5.10", "fused_state_body", "Final fused position, velocity, and acceleration", "BODY", (SENSOR_IMU, SENSOR_GNSS)),
         ),
     ),
     TaskSpec(
@@ -226,6 +240,10 @@ TASKS: tuple[TaskSpec, ...] = (
             SubtaskSpec("7.2", "Compute NED velocity residuals"),
             SubtaskSpec("7.3", "Compute the sign-invariant quaternion geodesic error"),
             SubtaskSpec("7.4", "Export the scalar comparison metrics"),
+            SubtaskSpec(
+                "7.6",
+                "Compare fused and truth states in NED, ECEF, and Body frames and report detailed attitude errors",
+            ),
         ),
         figures=(
             FigureSpec("7.1", "position_residuals", "Fused minus truth position residuals", "NED", (SENSOR_IMU, SENSOR_GNSS, SENSOR_TRUTH), requires_truth=True),
@@ -234,6 +252,13 @@ TASKS: tuple[TaskSpec, ...] = (
             FigureSpec("7.3", "attitude_error", "Quaternion geodesic attitude error", "BODY2NED", (SENSOR_IMU, SENSOR_TRUTH), requires_truth=True),
             FigureSpec("7.4", "metric_summary", "Scalar accuracy metrics for this method", "NONE", (SENSOR_IMU, SENSOR_GNSS, SENSOR_TRUTH)),
             FigureSpec("7.4", "innovation_summary", "GNSS innovation statistics used when truth is absent", "NED", (SENSOR_GNSS,)),
+            FigureSpec("7.6", "fused_vs_truth_ned", "Fused and truth position and velocity", "NED", (SENSOR_IMU, SENSOR_GNSS, SENSOR_TRUTH), requires_truth=True),
+            FigureSpec("7.6", "fused_vs_truth_ecef", "Fused and truth position and velocity", "ECEF", (SENSOR_IMU, SENSOR_GNSS, SENSOR_TRUTH), requires_truth=True),
+            FigureSpec("7.6", "fused_vs_truth_body", "Fused and truth position and velocity", "BODY", (SENSOR_IMU, SENSOR_GNSS, SENSOR_TRUTH), requires_truth=True),
+            FigureSpec("7.6", "quaternion_truth_vs_estimate", "Body-to-NED quaternion truth versus estimate", "BODY2NED", (SENSOR_IMU, SENSOR_TRUTH), requires_truth=True),
+            FigureSpec("7.6", "quaternion_error_components", "Body-to-NED quaternion component errors", "BODY2NED", (SENSOR_IMU, SENSOR_TRUTH), requires_truth=True),
+            FigureSpec("7.6", "euler_error_over_time", "Body-to-NED Euler angle errors", "BODY2NED", (SENSOR_IMU, SENSOR_TRUTH), requires_truth=True),
+            FigureSpec("7.6", "attitude_error_angle", "Sign-invariant total attitude error angle", "BODY2NED", (SENSOR_IMU, SENSOR_TRUTH), requires_truth=True),
         ),
     ),
 )

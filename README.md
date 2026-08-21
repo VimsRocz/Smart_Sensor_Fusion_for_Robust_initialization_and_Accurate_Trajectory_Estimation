@@ -8,6 +8,7 @@ Every task writes its own folder. Every subtask produces at least one figure. Ev
 - [How to run](#how-to-run) · [Task and subtask map](#task-and-subtask-map) · [Output layout](#output-layout) · [Figure naming](#figure-naming)
 - [**Dataset reference**](DATA/README.md) — what X001/X002/X003 are, every column, and what the numbers mean
 - [**Requirements compliance**](docs/REQUIREMENTS_COMPLIANCE.md) — this repo validated against the project specification
+- [**Project document traceability**](docs/PROJECT_DOCUMENT_TRACEABILITY.md) — PPT/PDF mapping for Tasks 4.6, 5.10 and 7.6
 - [**Using your own data**](#using-your-own-data) — what to change if your files are formatted differently
 - [Configuration reference](#configuration-reference) · [MATLAB](#matlab) · [GUI](#python-gui)
 - [**Troubleshooting**](#troubleshooting-command-not-found) — `command not found: python` / `pip`
@@ -84,11 +85,12 @@ without truth comparisons.
 
 ### PNG and directly openable MATLAB FIG output
 
-Every release PNG must have a native same-stem `.fig` file. The runner calls
-MATLAB automatically after plotting, embeds the exact rendered image in a
-native MATLAB figure, and audits the result count. You can double-click the
-`.fig` locally or upload it to MATLAB and open it directly—no redraw script is
-required. The same-stem `.mat` companion contains the numeric plot data.
+When MATLAB is available, every release plot gets a native same-stem `.fig`
+file during the run. The runner calls MATLAB automatically after plotting,
+embeds the exact rendered image in a native MATLAB figure, and audits the
+result count. You can double-click the `.fig` locally or upload it to MATLAB
+and open it directly—no redraw script is required. The same-stem `.mat`
+companion contains the numeric plot data.
 
 Native FIG serialization is a MATLAB feature; a `.mat` file renamed to `.fig`
 is not valid and will not open. MATLAB must therefore be installed on the
@@ -106,8 +108,10 @@ the fusion filters:
 make release-figs MATLAB_BIN=/path/to/matlab
 ```
 
-Normal release commands require MATLAB because they promise a genuine FIG for
-every PNG. For a two-system workflow, compute here without MATLAB using:
+Release commands automatically use deferred mode, so they compute successfully
+on a machine without MATLAB instead of failing at preflight. In that case PNG,
+PDF and MAT files are written while the script runs, and only native FIG
+creation is deferred. The explicit two-stage aliases remain available:
 
 ```bash
 make release-compute IMU_ID=x001 GNSS_ID=x001 METHOD=TRIAD
@@ -115,11 +119,12 @@ make release-compute IMU_ID=x001 GNSS_ID=x001 METHOD=TRIAD
 make release-18-compute OUTPUT_DIR=/path/on/a/larger/disk
 ```
 
-The output directory includes `export_release_figures.m` and
-`CREATE_NATIVE_FIGS.txt`. Copy that complete directory to any system with
-MATLAB and run `export_release_figures(pwd)` there once. This creates every
-native FIG without repeating IMU/GNSS computation. The resulting FIG files are
-portable and open directly later with a double-click or `openfig`.
+When MATLAB is unavailable, the output directory includes
+`export_release_figures.m` and `CREATE_NATIVE_FIGS.txt`. Copy that complete
+directory to any system with MATLAB and run `export_release_figures(pwd)` there
+once. This creates every native FIG without repeating IMU/GNSS computation.
+The resulting FIG files are portable and open directly later with a
+double-click or `openfig`.
 
 ### All 18 possibilities
 
@@ -213,15 +218,17 @@ make clean-heavy
 
 ---
 
-## The contract-driven pipeline (separate from the release plots)
+## Canonical configurable Task 1–7 pipeline
 
-`PYTHON/fusion_pipeline/` is a second, self-contained implementation with strict
-input contracts and its own test suite. It does not produce the release plots.
+`PYTHON/main.py` and `PYTHON/fusion_pipeline/` are the maintained implementation
+for configurable inputs, independent tasks, GUI execution and project-document
+figures. Each figure is exported as PNG, PDF and MAT; native FIG is added when
+MATLAB is available.
 
 ```bash
-.venv/bin/python PYTHON/run_pipeline.py --dataset x002 --method TRIAD
-.venv/bin/python PYTHON/run_pipeline.py --list-datasets
-.venv/bin/python PYTHON/run_pipeline.py --list-tasks
+.venv/bin/python PYTHON/main.py --dataset x002 --method TRIAD
+.venv/bin/python PYTHON/main.py --list-datasets
+.venv/bin/python PYTHON/main.py --list-tasks
 ```
 
 ### Choosing which tasks to run
@@ -229,8 +236,9 @@ input contracts and its own test suite. It does not produce the release plots.
 Tasks form a strict prefix chain, `1 → 2 → 3 → 4 → 5 → 6 → 7`. Asking for a downstream task automatically runs its prerequisites and records them as `auto_dependencies` in the manifest, so a Task 5 result can never consume stale Task 1–3 files.
 
 ```bash
-.venv/bin/python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --method TRIAD --tasks 1-5
-.venv/bin/python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --method SVD   --tasks 3
+.venv/bin/python PYTHON/main.py --config config/pipeline_small.yaml --method TRIAD --tasks 1-5
+.venv/bin/python PYTHON/main.py --config config/pipeline_small.yaml --method SVD   --tasks 3
+./scripts/run_task.sh 4 --config config/pipeline_small.yaml --method Davenport
 ```
 
 ### Useful flags
@@ -291,7 +299,7 @@ Then every task states **the method, which datasets that task consumes, and wher
 The `I` / `G` / `T` codes map to the dataset names printed in the header. `✎` marks a figure that was written and `·` one that was skipped, with the reason given on the subtask line. Each method closes with a line naming itself and its inputs:
 
 ```text
-─── TRIAD on IMU_X001_small + GNSS_X001_small finished in 6.1 s — 38 figures ───
+─── TRIAD on IMU_X001_small + GNSS_X001_small finished in 8.2 s — 51 figures ───
 ```
 
 Turn it all off with `--progress off`.
@@ -303,10 +311,10 @@ The result reported per subtask:
 | 1.1 / 1.2 / 1.3 | row counts and rates · origin lat/lon/alt · gravity and Earth rate |
 | 2.1 / 2.2 / 2.3 | sample count and units · chosen static window and its variance · averaged vector magnitudes |
 | 3.1 / 3.2 / 3.3 | per-vector alignment error · the quaternion and its norm · bias magnitudes |
-| 4.1 / 4.2 / 4.3 | samples interpolated past limits · samples propagated and final \|q\| · final IMU-only position |
-| 5.1 / 5.2 / 5.3 | prediction steps · GNSS updates and final innovation · final fused position |
+| 4.1 / 4.2 / 4.3 / 4.6 | samples interpolated past limits · samples propagated and final \|q\| · final IMU-only position · three-frame GNSS/IMU comparison |
+| 5.1 / 5.2 / 5.3 / 5.10 | prediction steps · GNSS updates and final innovation · final fused position · three-frame final state |
 | 6.1 / 6.2 / 6.3 / 6.4 | overlapping samples and time offset · truth NED extent · truth height range · quaternion alignment |
-| 7.1 / 7.2 / 7.3 / 7.4 | position RMSE and max · velocity RMSE and max · attitude RMSE · metric count |
+| 7.1 / 7.2 / 7.3 / 7.4 / 7.6 | position RMSE and max · velocity RMSE and max · attitude RMSE · metric count · three-frame truth and attitude comparison |
 
 ### What a run prints at the end
 
@@ -341,20 +349,20 @@ The exact filename of every figure is in `figures_index.csv` in the run folder.
 
 ## Task and subtask map
 
-Seven tasks, twenty-three subtasks. `PYTHON/fusion_pipeline/catalog.py` is the single source of truth: it drives the directory names, the JSON summaries, the figure filenames, and [docs/TASKS_AND_SUBTASKS.md](docs/TASKS_AND_SUBTASKS.md), which is generated from it.
+Seven tasks, twenty-six subtasks. `PYTHON/fusion_pipeline/catalog.py` is the single source of truth: it drives the directory names, the JSON summaries, the figure filenames, and [docs/TASKS_AND_SUBTASKS.md](docs/TASKS_AND_SUBTASKS.md), which is generated from it.
 
 | Task | Directory | Subtasks | Figures |
 |---|---|---|---|
 | **1** — Inputs and navigation reference | `task_01_inputs_reference/` | 1.1 validate inputs · 1.2 derive WGS-84 origin · 1.3 gravity and Earth-rate vectors | 5 |
 | **2** — Static interval and body vectors | `task_02_static_imu/` | 2.1 convert increments to SI rates · 2.2 select minimum-variance window · 2.3 average and normalise body vectors | 4 |
 | **3** — Initial attitude and IMU biases | `task_03_attitude_init/` | 3.1 solve Body→NED alignment · 3.2 normalise quaternion · 3.3 estimate biases | 5 |
-| **4** — IMU-only strapdown propagation | `task_04_inertial_propagation/` | 4.1 screen outliers and remove bias · 4.2 propagate quaternion · 4.3 Coriolis-compensated integration | 7 |
-| **5** — GNSS/IMU Kalman fusion | `task_05_gnss_imu_fusion/` | 5.1 predict · 5.2 GNSS update · 5.3 export state and innovations | 5 |
+| **4** — IMU-only strapdown propagation | `task_04_inertial_propagation/` | 4.1 screen outliers and remove bias · 4.2 propagate quaternion · 4.3 integration · **4.6 GNSS/IMU NED/ECEF/Body comparison** | 10 |
+| **5** — GNSS/IMU Kalman fusion | `task_05_gnss_imu_fusion/` | 5.1 predict · 5.2 GNSS update · 5.3 export · **5.10 fused NED/ECEF/Body state** | 8 |
 | **6** — Truth overlay in a common frame | `task_06_truth_overlay/` | 6.1 align time · 6.2 convert truth to common NED · 6.3 height = −Down · 6.4 quaternion alignment | 6 |
-| **7** — Residual evaluation and metrics | `task_07_evaluation/` | 7.1 position residuals · 7.2 velocity residuals · 7.3 attitude error · 7.4 scalar metrics | 6 |
+| **7** — Residual evaluation and metrics | `task_07_evaluation/` | 7.1–7.4 residuals/metrics · **7.6 truth overlays and detailed attitude errors** | 13 |
 | — Cross-method comparison | `comparison/` | C.1–C.5 | 5 |
 
-**38 figures per method run**, plus 5 comparison figures. An all-method run therefore produces 119 figures.
+**51 figures per method run**, plus 5 comparison figures. An all-method run therefore produces 158 figures.
 
 Task 3 is the only algorithmic branch between the three methods; Tasks 4–7 consume that method-specific attitude, which is why each method gets a self-contained folder.
 
@@ -440,8 +448,8 @@ Figures that could not be produced — for example the truth comparisons when no
 ```bash
 cp config/pipeline_custom_data_template.yaml config/my_data.yaml
 # edit config/my_data.yaml
-.venv/bin/python PYTHON/run_pipeline.py --config config/my_data.yaml --validate-only
-.venv/bin/python PYTHON/run_pipeline.py --config config/my_data.yaml
+.venv/bin/python PYTHON/main.py --config config/my_data.yaml --validate-only
+.venv/bin/python PYTHON/main.py --config config/my_data.yaml
 ```
 
 Always run `--validate-only` first. It reports the parsed row counts, sample rate, duration, repaired clock resets and the GNSS column names it resolved, without processing anything.
@@ -456,10 +464,10 @@ Always run `--validate-only` first. It reports the parsed row counts, sample rat
 | GNSS | CSV with header `Posix_Time, X_ECEF_m, Y_ECEF_m, Z_ECEF_m, VX_ECEF_mps, VY_ECEF_mps, VZ_ECEF_mps` | time s; position m (true ECEF); velocity m/s |
 | Truth *(optional)* | col 0 counter, col 1 time, cols 2–4 ECEF position, cols 5–7 ECEF velocity, cols 8–11 quaternion | time s; position m; velocity m/s; quaternion `[qx,qy,qz,qw]` Body→ECEF |
 
-For release plots, the output triplet is `<stem>.png` for universal viewing,
-`<stem>.fig` for direct MATLAB viewing, and `<stem>.mat` for underlying numeric
-arrays. MATLAB is required while generating the native FIG, but not merely to
-open the PNG.
+For release plots, the output is `<stem>.png` for universal viewing,
+`<stem>.pdf` for publication, and `<stem>.mat` for underlying numeric arrays.
+When MATLAB is available, `<stem>.fig` is also written during the run; without
+MATLAB it is created later by the bundled conversion command.
 
 ### If your data differs — change these keys
 
@@ -588,7 +596,7 @@ make gui
 
 Or directly: `.venv/bin/python gui.py`.
 
-Selects IMU, GNSS and optional truth files, validates them before a run, chooses one method or all methods, accepts task ranges, streams logs, and lists every generated PNG, JSON, CSV and NPZ artifact. Double-click an artifact to open it.
+Select one or more IMU, GNSS and optional truth files; choose by-index or all-combination pairing; run TRIAD, Davenport, SVD, a subset or all methods; and select any Tasks 1–7. The GUI validates configurable input layouts, streams batch logs, previews PNG plots, and lists PNG, PDF, FIG, MAT, JSON, CSV and NPZ artifacts.
 
 ---
 
@@ -636,7 +644,7 @@ make run-all
 
 ```bash
 source .venv/bin/activate
-python PYTHON/run_pipeline.py --config config/pipeline_small.yaml
+python PYTHON/main.py --config config/pipeline_small.yaml
 ```
 
 Inside an activated venv, plain `python` and `pip` work.
@@ -669,7 +677,7 @@ If it does not report `.venv/bin/python`, run `make venv`.
 
 ### `ModuleNotFoundError: No module named 'fusion_pipeline'`
 
-Run the pipeline through `PYTHON/run_pipeline.py`, which adds the package to the path itself. Importing `fusion_pipeline` directly needs the editable install from `make venv`.
+Run the pipeline through `PYTHON/main.py`, which runs from the package directory. Importing `fusion_pipeline` elsewhere needs the editable install from `make venv`.
 
 ### `No module named 'scipy'` / `filterpy` in a release run
 
@@ -701,7 +709,9 @@ PYTHON/fusion_pipeline/attitude.py    TRIAD, Davenport and SVD solvers
 PYTHON/fusion_pipeline/pipeline.py    Tasks 1-7 and the run orchestration
 PYTHON/fusion_pipeline/figures.py     figure generation, naming and indexing
 PYTHON/fusion_pipeline/cli.py         command-line interface
-PYTHON/run_pipeline.py                stable Python entry point
+PYTHON/main.py                        canonical Python entry point
+PYTHON/fusion_pipeline/tasks/         independent Task 1–7 module entry points
+PYTHON/run_pipeline.py                compatibility wrapper
 PYTHON/run_release.py                 all 18 full-rate release combinations
 MATLAB/+fusion/                       separate MATLAB task functions
 MATLAB/run_pipeline.m                 MATLAB single-method runner
@@ -711,6 +721,9 @@ DATA/README.md                        dataset reference: runs, columns, units, n
 config/                               versioned run configurations
 docs/                                 task and data-contract documentation
 scripts/generate_task_docs.py         regenerates the task documentation
+scripts/run_gui.sh                    GUI launcher
+scripts/run_pipeline.sh               shell pipeline launcher
+scripts/run_task.sh                   independent task launcher
 PYTHON/src/                           legacy/experimental scripts
 ```
 

@@ -30,7 +30,8 @@ end
 time_s=imu.time_s; position_ned_m=position; velocity_ned_mps=velocity; acceleration_ned_mps2=acceleration; quaternion_wxyz=q;
 save(fullfile(outDir,'inertial_solution.mat'),'time_s','position_ned_m','velocity_ned_mps','acceleration_ned_mps2','quaternion_wxyz');
 result=struct('task',4,'name','IMU-only strapdown propagation', ...
-    'subtasks',{{'4.1 Screen outliers and correct IMU','4.2 Propagate with Earth/transport rates','4.3 Coriolis-compensated NED integration'}}, ...
+    'subtasks',{{'4.1 Screen outliers and correct IMU','4.2 Propagate with Earth/transport rates', ...
+    '4.3 Coriolis-compensated NED integration','4.6 Compare GNSS-derived and IMU-derived kinematics in NED/ECEF/Body'}}, ...
     'samples',n,'duration_s',time_s(end),'artifact',fullfile(outDir,'inertial_solution.mat'), ...
     'range_screening',struct('accelerometer_samples_interpolated',accelRejected, ...
     'gyroscope_samples_interpolated',gyroRejected), ...
@@ -46,6 +47,38 @@ if cfg.plots
     figCtx=fusion.figures('save',figCtx,4,'imu_only_position_velocity',outDir,state_plot(time_s,position,velocity,idx));
     figCtx=fusion.figures('save',figCtx,4,'imu_only_acceleration',outDir,acceleration_plot(time_s,acceleration,idx));
     figCtx=fusion.figures('save',figCtx,4,'imu_only_ground_track',outDir,ground_track_plot(position,idx));
+
+    c_ecef_to_ned=task1.c_ecef_to_ned; c_ned_to_ecef=c_ecef_to_ned';
+    origin_ecef=task1.origin_ecef_m;
+    gnss_position_ned=(c_ecef_to_ned*(gnss.position_ecef_m-origin_ecef)')';
+    gnss_velocity_ned=(c_ecef_to_ned*gnss.velocity_ecef_mps')';
+    gnss_acceleration_ned=differentiate_series(gnss.velocity_ecef_mps*c_ecef_to_ned',gnss.time_s);
+    figCtx=fusion.figures('save',figCtx,4,'gnss_vs_imu_ned',outDir, ...
+        kinematic_comparison_plot(gnss.time_s,gnss_position_ned,gnss_velocity_ned, ...
+        gnss_acceleration_ned,time_s(idx),position(idx,:),velocity(idx,:),acceleration(idx,:), ...
+        {'North','East','Down'}));
+
+    imu_position_ecef=position(idx,:)*c_ned_to_ecef'+origin_ecef;
+    imu_velocity_ecef=velocity(idx,:)*c_ned_to_ecef';
+    imu_acceleration_ecef=acceleration(idx,:)*c_ned_to_ecef';
+    gnss_acceleration_ecef=differentiate_series(gnss.velocity_ecef_mps,gnss.time_s);
+    figCtx=fusion.figures('save',figCtx,4,'gnss_vs_imu_ecef',outDir, ...
+        kinematic_comparison_plot(gnss.time_s,gnss.position_ecef_m,gnss.velocity_ecef_mps, ...
+        gnss_acceleration_ecef,time_s(idx),imu_position_ecef,imu_velocity_ecef, ...
+        imu_acceleration_ecef,{'X','Y','Z'}));
+
+    gnss_quaternion=interp1(time_s,q,gnss.time_s,'linear','extrap');
+    gnss_quaternion=gnss_quaternion./vecnorm(gnss_quaternion,2,2);
+    gnss_position_body=rotate_ned_to_body(gnss_position_ned,gnss_quaternion);
+    gnss_velocity_body=rotate_ned_to_body(gnss_velocity_ned,gnss_quaternion);
+    gnss_acceleration_body=rotate_ned_to_body(gnss_acceleration_ned,gnss_quaternion);
+    imu_position_body=rotate_ned_to_body(position(idx,:),q(idx,:));
+    imu_velocity_body=rotate_ned_to_body(velocity(idx,:),q(idx,:));
+    imu_acceleration_body=rotate_ned_to_body(acceleration(idx,:),q(idx,:));
+    figCtx=fusion.figures('save',figCtx,4,'gnss_vs_imu_body',outDir, ...
+        kinematic_comparison_plot(gnss.time_s,gnss_position_body,gnss_velocity_body, ...
+        gnss_acceleration_body,time_s(idx),imu_position_body,imu_velocity_body, ...
+        imu_acceleration_body,{'Body x','Body y','Body z'}));
 end
 end
 
@@ -131,6 +164,43 @@ hStart=scatter(ax,east(1),north(1),36,[0 0.5 0],'filled');
 hEnd=scatter(ax,east(end),north(end),36,[0.86 0.08 0.24],'filled'); hold(ax,'off');
 axis(ax,'equal'); grid(ax,'on'); xlabel(ax,'East [m]'); ylabel(ax,'North [m]');
 legend([hStart hEnd],{'start','end'},'FontSize',8,'Location','best');
+end
+
+function derivative=differentiate_series(values,time)
+derivative=zeros(size(values));
+for j=1:size(values,2)
+    derivative(:,j)=gradient(values(:,j),time);
+end
+end
+
+function body=rotate_ned_to_body(values,quaternion)
+body=zeros(size(values));
+for i=1:size(values,1)
+    dcm_body_to_ned=fusion.math3d('quaternion_to_matrix',quaternion(i,:));
+    body(i,:)=(dcm_body_to_ned'*values(i,:)')';
+end
+end
+
+function f=kinematic_comparison_plot(gnssTime,gnssPosition,gnssVelocity,gnssAcceleration, ...
+    imuTime,imuPosition,imuVelocity,imuAcceleration,labels)
+f=figure('Visible','off','Position',[100 100 1450 920]); tl=tiledlayout(f,3,3);
+gnssValues={gnssPosition,gnssVelocity,gnssAcceleration};
+imuValues={imuPosition,imuVelocity,imuAcceleration};
+yLabels={'Position [m]','Velocity [m/s]','Acceleration [m/s^2]'};
+for row=1:3
+    for column=1:3
+        ax=nexttile(tl,(row-1)*3+column);
+        plot(ax,gnssTime,gnssValues{row}(:,column),'k--','LineWidth',0.9); hold(ax,'on');
+        plot(ax,imuTime,imuValues{row}(:,column),'LineWidth',0.8); hold(ax,'off');
+        grid(ax,'on');
+        if row==1; title(ax,labels{column}); end
+        if row==3; xlabel(ax,'Time [s]'); end
+        if column==1; ylabel(ax,yLabels{row}); end
+        if row==1 && column==1
+            legend(ax,{'GNSS derived','IMU derived'},'FontSize',8,'Location','best');
+        end
+    end
+end
 end
 
 function angles=quaternion_to_euler_zyx_deg(q)

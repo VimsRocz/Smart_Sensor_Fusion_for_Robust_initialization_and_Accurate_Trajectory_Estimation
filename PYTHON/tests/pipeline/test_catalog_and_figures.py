@@ -32,6 +32,14 @@ def test_every_subtask_has_at_least_one_figure():
         )
 
 
+def test_project_deck_subtasks_are_in_the_canonical_catalog():
+    expected = {4: "4.6", 5: "5.10", 7: "7.6"}
+    for task in TASKS:
+        if task.number in expected:
+            declared = {subtask.number for subtask in task.subtasks}
+            assert expected[task.number] in declared
+
+
 def test_figure_slugs_are_unique_within_a_task():
     for task in TASKS:
         slugs = [figure.slug for figure in task.figures]
@@ -93,6 +101,37 @@ def test_disabled_writer_records_every_figure_without_drawing(tmp_path):
     paths = writer.write_index(tmp_path)
     assert paths["json"].is_file() and paths["csv"].is_file()
     assert writer.records[0]["status"] == "disabled"
+
+
+def test_enabled_writer_writes_plot_artifacts_and_defers_only_native_fig(
+    tmp_path, monkeypatch
+):
+    """A Python-only run must save PNG/PDF/MAT without emitting a fake FIG."""
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("scipy")
+
+    from fusion_pipeline import figure_export
+
+    monkeypatch.setattr(figure_export, "_matlab_engine", lambda: False)
+    writer = FigureWriter(
+        run_id="run",
+        method="TRIAD",
+        dataset_tags={"imu": "IMU", "gnss": "GNSS", "truth": None},
+        enabled=True,
+    )
+    writer.emit(
+        1,
+        "reference_origin_map",
+        tmp_path,
+        lambda plt: plt.subplots()[0],
+    )
+
+    record = writer.records[0]
+    assert (tmp_path / record["artifacts"]["png"]).is_file()
+    assert (tmp_path / record["artifacts"]["pdf"]).is_file()
+    assert (tmp_path / record["artifacts"]["mat"]).is_file()
+    assert record["artifacts"]["fig"] is None
+    assert record["artifacts"]["fig_status"] == "deferred"
 
 
 def test_catalog_text_and_dict_stay_in_sync():

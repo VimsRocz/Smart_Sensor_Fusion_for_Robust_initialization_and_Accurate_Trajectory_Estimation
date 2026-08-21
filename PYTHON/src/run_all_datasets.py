@@ -12,6 +12,10 @@ _SRC = _Path(__file__).resolve().parent
 if str(_SRC) not in _sys.path:
     _sys.path.insert(0, str(_SRC))
 REPO_ROOT = _SRC.parents[2]
+from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
+
 import subprocess
 import datetime
 import sys
@@ -25,7 +29,7 @@ import os
 import logging
 from utils import save_mat
 
-from utils import ensure_dependencies, ecef_to_geodetic
+from utils import ecef_to_geodetic
 from tabulate import tabulate
 from tqdm import tqdm
 # Overlay helper functions
@@ -35,8 +39,6 @@ from utils.timeline import print_timeline_summary
 from utils.resolve_truth_path import resolve_truth_path
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-ensure_dependencies()
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent

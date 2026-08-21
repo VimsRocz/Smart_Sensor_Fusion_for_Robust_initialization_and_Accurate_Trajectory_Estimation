@@ -28,11 +28,11 @@ jobs:
 
       - name: Validate bundled inputs
         run: |
-          python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --validate-only
+          python PYTHON/main.py --config config/pipeline_small.yaml --validate-only
           python PYTHON/run_release.py --all --check-only
 
       - name: Lint canonical Python code
-        run: ruff check PYTHON/fusion_pipeline PYTHON/tests/pipeline PYTHON/run_pipeline.py PYTHON/run_release.py gui.py scripts/generate_task_docs.py
+        run: ruff check PYTHON/fusion_pipeline PYTHON/tests/pipeline PYTHON/main.py PYTHON/run_pipeline.py PYTHON/run_release.py gui.py scripts/generate_task_docs.py
 
       - name: Check the generated task documentation is current
         run: |
@@ -43,7 +43,7 @@ jobs:
         run: pytest -q
 
       - name: Smoke test all methods
-        run: python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --no-plots
+        run: python PYTHON/main.py --config config/pipeline_small.yaml --no-plots
 
       - name: Smoke test a single method with figures
-        run: python PYTHON/run_pipeline.py --config config/pipeline_small.yaml --method TRIAD --run-id ci_figures
+        run: python PYTHON/main.py --config config/pipeline_small.yaml --method TRIAD --run-id ci_figures

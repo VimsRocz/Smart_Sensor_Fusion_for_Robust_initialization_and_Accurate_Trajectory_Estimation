@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -116,6 +117,20 @@ def test_missing_matlab_requires_explicit_deferred_mode() -> None:
 def test_deferred_mode_warns_and_can_continue(capsys) -> None:
     apply_matlab_policy(None, plots_enabled=True, defer_fig=True)
     assert "does not rerun fusion" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "target", ["release", "release-combo", "release-18", "release-custom"]
+)
+def test_release_make_targets_allow_missing_local_matlab(target: str) -> None:
+    completed = subprocess.run(
+        ["make", "-n", target],
+        cwd=run_release.ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "--defer-fig" in completed.stdout
 
 
 def test_deferred_bundle_is_self_contained(tmp_path: Path) -> None:

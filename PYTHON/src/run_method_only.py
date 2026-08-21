@@ -20,6 +20,10 @@ _SRC = _Path(__file__).resolve().parent
 if str(_SRC) not in _sys.path:
     _sys.path.insert(0, str(_SRC))
 REPO_ROOT = _SRC.parents[2]
+from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
+
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +38,6 @@ from scipy.spatial.transform import Rotation as R
 from plot_overlay import plot_overlay
 from validate_with_truth import load_estimate, assemble_frames
 from evaluate_filter_results import run_evaluation_npz
-from utils import ensure_dependencies
 from pyproj import Transformer
 import os
 import subprocess as _subprocess
@@ -155,8 +158,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Run all datasets with one method", allow_abbrev=False)
     parser.add_argument("--method", choices=["TRIAD", "Davenport", "SVD"], default="TRIAD")
     args, remaining = parser.parse_known_args(argv)
-
-    ensure_dependencies()
 
     cmd = [sys.executable, str(HERE / "run_all_datasets.py"), "--method", args.method, *remaining]
     subprocess.run(cmd, check=True)

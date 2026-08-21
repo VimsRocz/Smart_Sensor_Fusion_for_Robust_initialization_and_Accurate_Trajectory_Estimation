@@ -22,6 +22,9 @@ if str(_SRC) not in _sys.path:
     _sys.path.insert(0, str(_SRC))
 # Repository root (…/IMU)
 REPO_ROOT = _SRC.parents[2]
+from dependency_bootstrap import ensure_dependencies
+
+ensure_dependencies()
 
 import argparse
 import json

@@ -79,6 +79,20 @@ def test_report_names_every_figure_and_its_frame(plotted_run):
             assert figure.frame in text
 
 
+def test_task76_ecef_positions_are_absolute_not_local_displacements(plotted_run):
+    scipy_io = pytest.importorskip("scipy.io")
+    record = next(
+        item for item in plotted_run["figures"] if item["figure"] == "fused_vs_truth_ecef"
+    )
+    mat_path = (
+        Path(plotted_run["run_dir"])
+        / record["task_directory"]
+        / record["artifacts"]["mat"]
+    )
+    values = scipy_io.loadmat(mat_path)["ax1_line1_y"].ravel()
+    assert abs(values).min() > 1_000_000
+
+
 def test_report_says_figures_are_off_rather_than_listing_them(single_run):
     text = run_report(single_run, "full")
     assert "figures disabled" in text
@@ -180,8 +194,11 @@ def test_every_task_line_states_the_method_and_the_datasets_it_uses(tmp_path):
     for task in TASKS:
         assert f"▶ SVD · Task {task.number}/7 — {task.name}" in text
         assert f"✔ SVD · Task {task.number} complete" in text
-    # Task 4 is IMU-only; Task 6 additionally consumes truth.
-    assert "    data: IMU_X001_small    →  task_04_inertial_propagation/" in text
+    # Task 4.6 compares IMU propagation against GNSS; Task 6 additionally consumes truth.
+    assert (
+        "    data: IMU_X001_small + GNSS_X001_small"
+        "    →  task_04_inertial_propagation/"
+    ) in text
     assert (
         "    data: IMU_X001_small + GNSS_X001_small + STATE_X001_small"
         "    →  task_06_truth_overlay/"

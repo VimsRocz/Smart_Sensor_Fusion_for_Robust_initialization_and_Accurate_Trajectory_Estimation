@@ -8,7 +8,7 @@ Every task, subtask, output directory and figure below is generated from
 reads at run time. Print the same information at any time with:
 
 ```bash
-.venv/bin/python PYTHON/run_pipeline.py --list-tasks
+.venv/bin/python PYTHON/main.py --list-tasks
 ```
 
 ## Dependency rule
@@ -93,6 +93,7 @@ Output directory: `task_04_inertial_propagation/`
 | **4.1** | Screen physical-range outliers and remove the Task 3 biases | `range_screening` — Specific-force and angular-rate magnitudes against their limits (BODY · imu)<br>`bias_corrected_imu` — IMU signals before and after bias removal (BODY · imu) |
 | **4.2** | Propagate the Body-to-NED quaternion with Earth and transport rates | `propagated_quaternion` — Propagated Body-to-NED quaternion history (BODY2NED · imu)<br>`propagated_euler_angles` — Propagated yaw, pitch and roll history (BODY2NED · imu) |
 | **4.3** | Apply Coriolis compensation and integrate the NED state | `imu_only_position_velocity` — IMU-only position and velocity (NED · imu)<br>`imu_only_acceleration` — IMU-only resolved acceleration (NED · imu)<br>`imu_only_ground_track` — IMU-only horizontal ground track (NED · imu) |
+| **4.6** | Compare GNSS-derived and IMU-derived position, velocity, and acceleration in NED, ECEF, and Body frames | `gnss_vs_imu_ned` — GNSS-derived versus IMU-derived kinematics (NED · imu+gnss)<br>`gnss_vs_imu_ecef` — GNSS-derived versus IMU-derived kinematics (ECEF · imu+gnss)<br>`gnss_vs_imu_body` — GNSS-derived versus IMU-derived kinematics (BODY · imu+gnss) |
 
 ## Task 5 — GNSS/IMU Kalman fusion
 
@@ -105,6 +106,7 @@ Output directory: `task_05_gnss_imu_fusion/`
 | **5.1** | Predict the six-state NED position/velocity from IMU acceleration | `prediction_vs_gnss` — Filter prediction against the GNSS measurements (NED · imu+gnss) |
 | **5.2** | Apply Joseph-form updates at each asynchronous GNSS epoch | `kalman_innovations` — Position and velocity innovations at each update (NED · gnss) |
 | **5.3** | Export the fused state and the innovation history | `fused_position_velocity` — Fused position and velocity (NED · imu+gnss)<br>`fused_ground_track` — Fused horizontal ground track with GNSS fixes (NED · imu+gnss)<br>`fused_vs_imu_only` — Fused solution against the IMU-only solution (NED · imu+gnss) |
+| **5.10** | Present the final fused position, velocity, and acceleration in NED, ECEF, and Body frames | `fused_state_ned` — Final fused position, velocity, and acceleration (NED · imu+gnss)<br>`fused_state_ecef` — Final fused position, velocity, and acceleration (ECEF · imu+gnss)<br>`fused_state_body` — Final fused position, velocity, and acceleration (BODY · imu+gnss) |
 
 ## Task 6 — Truth overlay in a common frame
 
@@ -131,6 +133,7 @@ Output directory: `task_07_evaluation/`
 | **7.2** | Compute NED velocity residuals | `velocity_residuals` — Fused minus truth velocity residuals (NED · imu+gnss+truth) *[needs truth]* |
 | **7.3** | Compute the sign-invariant quaternion geodesic error | `attitude_error` — Quaternion geodesic attitude error (BODY2NED · imu+truth) *[needs truth]* |
 | **7.4** | Export the scalar comparison metrics | `metric_summary` — Scalar accuracy metrics for this method (NONE · imu+gnss+truth)<br>`innovation_summary` — GNSS innovation statistics used when truth is absent (NED · gnss) |
+| **7.6** | Compare fused and truth states in NED, ECEF, and Body frames and report detailed attitude errors | `fused_vs_truth_ned` — Fused and truth position and velocity (NED · imu+gnss+truth) *[needs truth]*<br>`fused_vs_truth_ecef` — Fused and truth position and velocity (ECEF · imu+gnss+truth) *[needs truth]*<br>`fused_vs_truth_body` — Fused and truth position and velocity (BODY · imu+gnss+truth) *[needs truth]*<br>`quaternion_truth_vs_estimate` — Body-to-NED quaternion truth versus estimate (BODY2NED · imu+truth) *[needs truth]*<br>`quaternion_error_components` — Body-to-NED quaternion component errors (BODY2NED · imu+truth) *[needs truth]*<br>`euler_error_over_time` — Body-to-NED Euler angle errors (BODY2NED · imu+truth) *[needs truth]*<br>`attitude_error_angle` — Sign-invariant total attitude error angle (BODY2NED · imu+truth) *[needs truth]* |
 
 ## Cross-method comparison
 

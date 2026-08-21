@@ -19,7 +19,9 @@ end
 innovations=innovations(1:g-1,:); updateTimes=updateTimes(1:g-1);
 time_s=imu.time_s; position_ned_m=position; velocity_ned_mps=velocity; acceleration_ned_mps2=task4.acceleration; quaternion_wxyz=task4.quaternion;
 save(fullfile(outDir,'fused_solution.mat'),'time_s','position_ned_m','velocity_ned_mps','acceleration_ned_mps2','quaternion_wxyz','innovations','updateTimes');
-result=struct('task',5,'name','GNSS/IMU Kalman fusion','subtasks',{{'5.1 Predict NED state','5.2 Update with GNSS','5.3 Save innovations'}}, ...
+result=struct('task',5,'name','GNSS/IMU Kalman fusion','subtasks',{{'5.1 Predict NED state', ...
+    '5.2 Update with GNSS','5.3 Save innovations', ...
+    '5.10 Present fused state in NED/ECEF/Body'}}, ...
     'samples',n,'gnss_updates',size(innovations,1),'artifact',fullfile(outDir,'fused_solution.mat'), ...
     'final_position_ned_m',position(end,:),'final_velocity_ned_mps',velocity(end,:), ...
     'time_s',time_s,'position',position,'velocity',velocity,'acceleration',task4.acceleration, ...
@@ -37,6 +39,24 @@ if cfg.plots
         ground_track_plot(position,gnssPosition,idx));
     figCtx=fusion.figures('save',figCtx,5,'fused_vs_imu_only',outDir, ...
         comparison_plot(time_s,position,velocity,task4.position,task4.velocity,idx));
+    figCtx=fusion.figures('save',figCtx,5,'fused_state_ned',outDir, ...
+        fused_kinematic_plot(time_s(idx),position(idx,:),velocity(idx,:), ...
+        task4.acceleration(idx,:),{'North','East','Down'}));
+
+    c_ned_to_ecef=task1.c_ecef_to_ned'; origin_ecef=task1.origin_ecef_m;
+    position_ecef=position(idx,:)*c_ned_to_ecef'+origin_ecef;
+    velocity_ecef=velocity(idx,:)*c_ned_to_ecef';
+    acceleration_ecef=task4.acceleration(idx,:)*c_ned_to_ecef';
+    figCtx=fusion.figures('save',figCtx,5,'fused_state_ecef',outDir, ...
+        fused_kinematic_plot(time_s(idx),position_ecef,velocity_ecef,acceleration_ecef, ...
+        {'X','Y','Z'}));
+
+    position_body=rotate_ned_to_body(position(idx,:),task4.quaternion(idx,:));
+    velocity_body=rotate_ned_to_body(velocity(idx,:),task4.quaternion(idx,:));
+    acceleration_body=rotate_ned_to_body(task4.acceleration(idx,:),task4.quaternion(idx,:));
+    figCtx=fusion.figures('save',figCtx,5,'fused_state_body',outDir, ...
+        fused_kinematic_plot(time_s(idx),position_body,velocity_body,acceleration_body, ...
+        {'Body x','Body y','Body z'}));
 end
 end
 
@@ -111,5 +131,31 @@ for j=1:3
     ax=nexttile(tl,j+3); plot(ax,time(idx),velocity(idx,j),'LineWidth',0.9); hold(ax,'on');
     plot(ax,time(idx),imuVelocity(idx,j),'--','LineWidth',0.8);
     ylabel(ax,'Velocity [m/s]'); xlabel(ax,'Time [s]'); grid(ax,'on');
+end
+end
+
+function body=rotate_ned_to_body(values,quaternion)
+body=zeros(size(values));
+for i=1:size(values,1)
+    dcm_body_to_ned=fusion.math3d('quaternion_to_matrix',quaternion(i,:));
+    body(i,:)=(dcm_body_to_ned'*values(i,:)')';
+end
+end
+
+function f=fused_kinematic_plot(time,position,velocity,acceleration,labels)
+f=new_figure(1450,920); tl=tiledlayout(f,3,3);
+values={position,velocity,acceleration};
+yLabels={'Position [m]','Velocity [m/s]','Acceleration [m/s^2]'};
+for row=1:3
+    for column=1:3
+        ax=nexttile(tl,(row-1)*3+column);
+        plot(ax,time,values{row}(:,column),'LineWidth',0.85); grid(ax,'on');
+        if row==1; title(ax,labels{column}); end
+        if row==3; xlabel(ax,'Time [s]'); end
+        if column==1; ylabel(ax,yLabels{row}); end
+        if row==1 && column==1
+            legend(ax,{'Fused GNSS + IMU'},'FontSize',8,'Location','best');
+        end
+    end
 end
 end

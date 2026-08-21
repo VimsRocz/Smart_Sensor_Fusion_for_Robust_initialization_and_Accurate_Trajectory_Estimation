@@ -12,6 +12,21 @@ r = run_pipeline('method', 'Davenport', 'tasks', '1-7');
 c = run_all_methods('tasks', '1-7');
 ```
 
+Requesting one downstream task runs its prerequisites but writes the selected
+task result in its own folder:
+
+```matlab
+r4 = run_pipeline('method','TRIAD',    'tasks','4');
+r5 = run_pipeline('method','SVD',      'tasks','5');
+r7 = run_pipeline('method','Davenport','tasks','7');
+```
+
+The project-document requirements are explicit catalog entries: Task 4.6
+writes GNSS-vs-IMU NED/ECEF/Body grids, Task 5.10 writes final fused
+NED/ECEF/Body grids, and Task 7.6 writes truth overlays plus quaternion, Euler
+and total attitude-error figures. MATLAB exports each live figure as PNG,
+vector PDF and native FIG.
+
 Explicit file paths and a configuration struct are supported:
 
 ```matlab
@@ -67,7 +82,10 @@ figCtx = fusion.figures('skip', figCtx, taskNumber, figureSlug, reason);
          fusion.figures('write_index', figCtx, runDir);
 ```
 
-`'save'` stamps the identifying title and footer onto the figure, writes the PNG under the catalog filename, closes the handle, and records it. Task functions therefore never call `exportgraphics`, `sgtitle` or `close` themselves.
+`'save'` stamps the identifying title and footer onto the figure, writes the
+PNG and native `.fig` under the catalog filename while the handle is live,
+then closes it and records both artifacts. Task functions therefore never call
+`exportgraphics`, `savefig`, `sgtitle` or `close` themselves.
 
 ## Figure index and coverage
 

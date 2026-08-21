@@ -14,7 +14,8 @@ function varargout = figures(action, varargin)
 %   name = fusion.figures('filename', ctx, taskNumber, figureSlug)
 %   ctx  = fusion.figures('save', ctx, taskNumber, figureSlug, outDir, f, dpi)
 %       Stamps the identifying title/footer onto figure handle f, writes the
-%       PNG, closes f, and appends a record to ctx.records.
+%       PNG, publication PDF and native MATLAB FIG while f is still open,
+%       closes f, and appends a record to ctx.records.
 %   ctx  = fusion.figures('skip', ctx, taskNumber, figureSlug, reason)
 %   fusion.figures('write_index', ctx, runDir)
 %       Writes figures_index.csv and figures_index.json. Any catalog figure
@@ -120,12 +121,35 @@ if nargin < 6 || isempty(dpi); dpi = 160; end
 name = make_filename(ctx, taskNumber, figureSlug);
 if ~exist(outDir, 'dir'); mkdir(outDir); end
 target = fullfile(outDir, name);
+[folder, stem] = fileparts(target);
+figTarget = fullfile(folder, [stem '.fig']);
+pdfTarget = fullfile(folder, [stem '.pdf']);
 
 stamp(f, task, spec, ctx);
 exportgraphics(f, target, 'Resolution', dpi);
+pdfStatus = 'written';
+try
+    exportgraphics(f, pdfTarget, 'ContentType', 'vector');
+catch exception
+    pdfStatus = 'failed';
+    warning('fusion:Figures:PdfSaveFailed', ...
+        'Could not save PDF %s: %s', pdfTarget, exception.message);
+end
+figStatus = 'written';
+try
+    % Save the live MATLAB graphics object, rather than reconstructing a
+    % raster image later.  This preserves axes, legends and editable lines
+    % for openfig(...), exactly as recommended by MathWorks.
+    savefig(f, figTarget);
+catch exception
+    figStatus = 'deferred';
+    warning('fusion:Figures:FigSaveFailed', ...
+        'Could not save native FIG %s: %s', figTarget, exception.message);
+end
 close(f);
 
-ctx.records{end+1} = make_record(task, spec, ctx, 'written', '', name, target);
+ctx.records{end+1} = make_record(task, spec, ctx, 'written', '', name, target, ...
+    [stem '.fig'], figTarget, figStatus, [stem '.pdf'], pdfTarget, pdfStatus);
 end
 
 function ctx = skip_figure(ctx, taskNumber, figureSlug, reason)
@@ -133,7 +157,14 @@ function ctx = skip_figure(ctx, taskNumber, figureSlug, reason)
 ctx.records{end+1} = make_record(task, spec, ctx, 'skipped', reason, '', '');
 end
 
-function record = make_record(task, spec, ctx, status, reason, name, target)
+function record = make_record(task, spec, ctx, status, reason, name, target, ...
+    figName, figTarget, figStatus, pdfName, pdfTarget, pdfStatus)
+if nargin < 8; figName = ''; end
+if nargin < 9; figTarget = ''; end
+if nargin < 10; figStatus = ''; end
+if nargin < 11; pdfName = ''; end
+if nargin < 12; pdfTarget = ''; end
+if nargin < 13; pdfStatus = ''; end
 c = fusion.catalog();
 meaning = '';
 index = find(strcmp(c.frames(:, 1), spec.frame), 1);
@@ -156,7 +187,9 @@ record = struct( ...
     'figure', spec.slug, 'figure_title', spec.title, ...
     'coordinate_frame', spec.frame, 'coordinate_frame_meaning', meaning, ...
     'sensor_data', data_tag(ctx, spec.sources), 'method', ctx.method, ...
-    'status', status, 'reason', reason, 'filename', name, 'path', target);
+    'status', status, 'reason', reason, 'filename', name, 'path', target, ...
+    'fig_filename', figName, 'fig_path', figTarget, 'fig_status', figStatus, ...
+    'pdf_filename', pdfName, 'pdf_path', pdfTarget, 'pdf_status', pdfStatus);
 end
 
 function stamp(f, task, spec, ctx)
@@ -187,7 +220,8 @@ if ~exist(runDir, 'dir'); mkdir(runDir); end
 
 columns = {'task', 'task_name', 'subtask', 'subtask_name', 'figure', ...
     'figure_title', 'coordinate_frame', 'sensor_data', 'method', 'status', ...
-    'task_directory', 'filename'};
+    'task_directory', 'filename', 'pdf_filename', 'pdf_status', ...
+    'fig_filename', 'fig_status'};
 rows = cell(numel(records), numel(columns));
 for r = 1:numel(records)
     for k = 1:numel(columns)

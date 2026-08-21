@@ -31,6 +31,7 @@ logs/
 *.log
 triad_*_log.txt
 .venv/
+tmp/
 results/
 build/
 dist/

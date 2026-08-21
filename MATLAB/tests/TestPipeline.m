@@ -55,6 +55,7 @@ classdef TestPipeline < matlab.unittest.TestCase
         function catalogDefinesSevenTasksWithFigurePerSubtask(testCase)
             c = fusion.catalog();
             testCase.verifyEqual(numel(c.tasks), 7);
+            required = {4,'4.6';5,'5.10';7,'7.6'};
             for k = 1:7
                 task = c.tasks(k);
                 testCase.verifyEqual(task.number, k);
@@ -64,6 +65,11 @@ classdef TestPipeline < matlab.unittest.TestCase
                 for j = 1:numel(task.subtasks)
                     testCase.verifyTrue(any(covered == string(task.subtasks{j}.number)), ...
                         sprintf('Task %d subtask %s has no figure', k, task.subtasks{j}.number));
+                end
+                match = find(cell2mat(required(:,1)) == k, 1);
+                if ~isempty(match)
+                    declared = cellfun(@(s) string(s.number), task.subtasks);
+                    testCase.verifyTrue(any(declared == string(required{match,2})));
                 end
             end
         end
@@ -118,6 +124,14 @@ classdef TestPipeline < matlab.unittest.TestCase
                 testCase.verifyTrue(isfile(fullfile(result.run_dir, ...
                     char(written.task_directory(r)), char(written.filename(r)))), ...
                     sprintf('Missing figure file: %s', written.filename(r)));
+                testCase.verifyTrue(isfile(fullfile(result.run_dir, ...
+                    char(written.task_directory(r)), char(written.fig_filename(r)))), ...
+                    sprintf('Missing native FIG file: %s', written.fig_filename(r)));
+                testCase.verifyTrue(isfile(fullfile(result.run_dir, ...
+                    char(written.task_directory(r)), char(written.pdf_filename(r)))), ...
+                    sprintf('Missing PDF file: %s', written.pdf_filename(r)));
+                testCase.verifyEqual(string(written.fig_status(r)), "written");
+                testCase.verifyEqual(string(written.pdf_status(r)), "written");
             end
             testCase.verifyEmpty(find(index.status == "not_implemented", 1));
         end
