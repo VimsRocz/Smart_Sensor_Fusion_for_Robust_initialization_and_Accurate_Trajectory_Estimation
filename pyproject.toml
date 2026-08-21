@@ -33,6 +33,9 @@ release = [
   "pandas",
   "rich",
   "filterpy",
+  "tabulate>=0.9",
+  "tqdm>=4.66",
+  "pyproj>=3.6",
   "plotly>=5",
   "kaleido",
 ]
